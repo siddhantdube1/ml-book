@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createRng, gauss } from '@/lib/rng'
 import type { Point } from '@/lib/datasets'
+import { Tex } from './Tex'
 
 const ACCENT = '#1d6d5e'
 const MEAN_COLOR = '#c7522a'
@@ -254,8 +255,8 @@ export default function UpdateStepDemo() {
       <figcaption className="font-sans text-sm text-ink-muted mt-3 text-center">
         Figure 18.2 — WCSS as a function of centroid position for a single
         cluster. The level rings are contours of the WCSS surface — concentric
-        circles centred on the mean, where WCSS doubles roughly every
-        $\sqrt{2}$ in radius.
+        circles centred on the mean, where WCSS doubles roughly every{' '}
+        <Tex>{String.raw`\sqrt{2}`}</Tex> in radius.
       </figcaption>
     </figure>
   )
