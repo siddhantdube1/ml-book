@@ -4,6 +4,17 @@ A web-based interactive book teaching the foundations of classical machine
 learning. Inspired by [cartesian.app](https://cartesian.app) — the same
 format applied to ML.
 
+**Live at https://ml-book-seven.vercel.app**
+
+## ⚠ Working on this with Claude Code? Read [HANDOFF.md](./HANDOFF.md) first.
+
+That file is the single source of truth for the project's structure,
+conventions, and writing voice. Companion files in `docs/`:
+
+- [`docs/VOICE-AND-STYLE.md`](./docs/VOICE-AND-STYLE.md) — verbatim voice examples; read before writing new prose
+- [`docs/CHAPTER-RECIPE.md`](./docs/CHAPTER-RECIPE.md) — step-by-step recipe for a new chapter
+- [`docs/NEXT-CHAPTER-8.md`](./docs/NEXT-CHAPTER-8.md) — detailed plan for the next chapter to build
+
 ## Quick start
 
 ```bash
@@ -12,8 +23,13 @@ npm run dev
 ```
 
 Open `http://localhost:3000`. The landing page lists all 22 chapters.
-Chapter 18 (k-means) is the only one with content so far — it doubles as
-the format prototype and the proof that all the pieces compose.
+
+**Shipped chapters:**
+- Chapter 6 — Gradient descent
+- Chapter 7 — Logistic regression
+- Chapter 18 — k-means clustering
+
+The format is locked in across these three. Remaining chapters follow the same recipe (see `docs/CHAPTER-RECIPE.md`).
 
 ## Project structure
 

@@ -1,0 +1,716 @@
+import SigmoidExplorer from '@/components/SigmoidExplorer'
+import DecisionBoundary from '@/components/DecisionBoundary'
+import TrainingDynamics from '@/components/TrainingDynamics'
+import PyodideEditor from '@/components/PyodideEditor'
+
+export const metadata = {
+  title: 'Logistic regression',
+  description:
+    'From predicting numbers to predicting probabilities. The sigmoid, cross-entropy loss, and the moment the gradient descent we just built starts training real classifiers — with three interactive visualisations, runnable Python, and five problems.',
+  openGraph: {
+    title: 'Logistic regression',
+    description:
+      'An interactive walk-through of logistic regression — sigmoid, cross-entropy, and gradient descent on a real binary classifier.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 7 · Part II — Linear models
+</p>
+
+# Logistic regression
+
+*Predicting probabilities instead of numbers. The moment the gradient
+descent we just built starts training real classifiers.*
+
+So far the book has been about *regression* — predicting numbers. House
+prices. Temperatures. Heights. But a great many of the most useful
+machine-learning problems aren't about predicting numbers at all; they
+are about predicting *categories*. Is this email spam, or not? Is this
+transaction fraud, or not? Does this image contain a cat? These are
+*classification* problems.
+
+This chapter introduces *logistic regression*, the simplest non-trivial
+classifier. It is the workhorse algorithm of binary classification, and
+underneath the friendly name it is exactly what you would invent if you
+sat down to make linear regression output probabilities — plus one small
+mathematical adjustment that turns out to matter a lot.
+
+By the end of this chapter you will have trained a real classifier from
+scratch using nothing but the gradient descent of Chapter 6.
+
+## 1. From regression to classification
+
+Linear regression takes an input vector $x$ and predicts a real number
+$\hat{y} = w^\top x + b$. The output can be anything: 3.7, −2.1, 1000.
+
+Classification asks a different question. The label $y$ is now discrete:
+0 or 1 (spam or not), or one of several categories (digit 0–9, image
+class). For this chapter we restrict to the *binary* case — two classes
+only, labelled 0 and 1. Multi-class classification is Chapter 8.
+
+Concretely, here is the setup. You have training examples
+$(x_1, y_1), (x_2, y_2), \dots, (x_n, y_n)$ where each $x_i \in
+\mathbb{R}^p$ is a feature vector and each $y_i \in \{0, 1\}$ is a class
+label. You want a model that, given a new $x$, predicts which class it
+belongs to.
+
+A first instinct: just use linear regression. Encode the classes as 0 and
+1, fit a line, and threshold the output at 0.5. If $\hat{y} > 0.5$,
+predict class 1; otherwise predict class 0. Why not?
+
+## 2. Why linear regression fails for classification
+
+The naive plan above almost works. But there are three problems with it,
+in increasing order of importance.
+
+**Problem 1.** The linear output $w^\top x + b$ can take any real value.
+It might predict −0.3 for some input, or 1.7 for another. We claimed to
+output probabilities, but probabilities live in $[0, 1]$. So the
+prediction we hand back to the user isn't strictly a probability — it is
+some unbounded real number, which we then *interpret* probabilistically.
+This is unsatisfying and also fragile: a value of 1.7 doesn't mean
+"170% confident this is class 1" because that isn't a thing.
+
+**Problem 2.** Linear regression is very sensitive to outliers. Adding a
+single far-away training point can rotate the entire regression line,
+shifting the threshold and changing classifications for points that
+weren't even near the new outlier. Classification ought to be more
+robust than that.
+
+**Problem 3.** The most subtle and most important: the *loss function*
+linear regression optimises (mean squared error) is the wrong objective
+for this problem. It penalises a confident-wrong prediction (predicting
+0.99 when the truth is 0) at roughly the same scale as it penalises a
+slightly-wrong prediction (predicting 0.49 when the truth is 0). For
+classification we want the opposite — confident wrongness should be
+punished much more harshly than borderline wrongness, because confident
+mistakes are the dangerous ones.
+
+The fix for all three problems is the same. We change the model in two
+small, related ways:
+
+1. We squash the linear output through a function that maps it into
+   $[0, 1]$ so it is honestly a probability.
+2. We use a loss function designed for probabilities — one whose gradient
+   has the right shape for learning.
+
+The squashing function is the sigmoid. The loss is cross-entropy. Let's
+meet them in turn.
+
+## 3. The sigmoid function
+
+The sigmoid is the smooth, S-shaped function
+
+$$\sigma(z) = \frac{1}{1 + e^{-z}}.$$
+
+It takes any real number $z$ and returns a number in $(0, 1)$. A few
+properties worth noticing:
+
+- $\sigma(0) = 0.5$, exactly the midpoint.
+- As $z \to +\infty$, $\sigma(z) \to 1$.
+- As $z \to -\infty$, $\sigma(z) \to 0$.
+- It is smooth everywhere, with a particularly simple derivative
+  $\sigma'(z) = \sigma(z)(1 - \sigma(z))$.
+
+You can think of the sigmoid as a *soft step function*. A hard step
+function — return 0 below the threshold, 1 above — is what we'd really
+like, conceptually, for classification. But hard steps are discontinuous,
+non-differentiable, and useless for gradient descent. The sigmoid is the
+smooth replacement: it has the same overall shape but is differentiable
+everywhere, with informative gradients we can actually descend on.
+
+<SigmoidExplorer />
+
+Drag the line or use the slider. Toggle the step function overlay to see
+how the sigmoid relates to its discontinuous counterpart.
+
+## 4. The model: σ(w·x + b)
+
+The logistic regression model is just linear regression's output piped
+through the sigmoid:
+
+$$P(y = 1 \mid x) = \sigma(w^\top x + b).$$
+
+The same $w$ and $b$ as linear regression, the same linear combination,
+but now the output is a probability instead of an unbounded real. To make
+a hard 0/1 prediction we threshold at 0.5:
+
+$$\hat{y}(x) = \begin{cases} 1 & \text{if } \sigma(w^\top x + b) \geq 0.5 \\ 0 & \text{otherwise.}\end{cases}$$
+
+Because $\sigma(z) = 0.5$ exactly when $z = 0$, the threshold condition
+simplifies to $w^\top x + b \geq 0$. The *decision boundary* — the set of
+points where the model is exactly 50-50 — is therefore
+
+$$\{x : w^\top x + b = 0\}.$$
+
+This is a hyperplane: a line in 2D, a plane in 3D, a hyperplane in higher
+dimensions. The sigmoid does not bend the boundary; it only smooths the
+output around it. So logistic regression is a *linear classifier* — its
+boundary is a hyperplane — even though its outputs are nonlinear in the
+input.
+
+The visualisation below puts this in your hands. The two endpoints of the
+dashed line are draggable handles that let you reposition the boundary by
+hand. The background shading is the model's probability map: blue for
+"this is probably class 0," orange for "this is probably class 1," fading
+through neutral at the boundary itself. The *sharpness* slider controls
+$\|w\|$ — the magnitude of the weight vector — which compresses or
+stretches the transition zone without changing the boundary's location.
+
+<DecisionBoundary />
+
+Some things worth playing with:
+
+- On **blobs**, drag the boundary until the heatmap cleanly separates the
+  two clouds. Try cranking sharpness up. Notice that the boundary doesn't
+  move — only the steepness of the transition does.
+- On **overlap**, no boundary perfectly separates the classes — they
+  share territory. The best you can do is minimise mistakes.
+- On **moons**, no straight line can separate the two interleaved arcs.
+  This is the geometric reason logistic regression fails on non-linearly
+  separable data. We'll see ways around this in later chapters
+  (feature engineering, kernels, neural networks); for now, just feel the
+  limit.
+
+## 5. Cross-entropy loss
+
+We have the model. We need a loss function — a single number we can hand
+to gradient descent that measures how badly the model is doing.
+
+The natural-feeling first guess is mean squared error, the loss from
+linear regression:
+
+$$L_{\mathrm{MSE}}(w, b) = \frac{1}{n} \sum_{i=1}^n \big(\sigma(w^\top x_i + b) - y_i\big)^2.$$
+
+This *technically* works — you can run gradient descent on it. But it has
+a quietly nasty problem. When the model is very confident and very wrong
+— predicting 0.99 when the true label is 0 — the sigmoid is in its flat
+region, so $\sigma'(z) \approx 0$, and the gradient of MSE through the
+chain rule is also nearly zero. The model is in trouble but the gradient
+won't tell it so. Learning slows to a crawl exactly when speedup is most
+needed.
+
+The right loss is *cross-entropy*, also called *log loss*:
+
+$$L(w, b) = -\frac{1}{n} \sum_{i=1}^n \big[ y_i \log p_i + (1 - y_i) \log(1 - p_i) \big],$$
+
+where $p_i = \sigma(w^\top x_i + b)$ is the model's predicted probability
+for example $i$.
+
+Read the formula carefully. For each training example only one of the two
+terms is non-zero — the one where the indicator matches the label. If
+$y_i = 1$, the term is $-\log p_i$, which is small when $p_i$ is near 1
+(the prediction matches) and grows large as $p_i \to 0$ (the prediction
+is confident and wrong). If $y_i = 0$, it's $-\log(1 - p_i)$, symmetric
+in the opposite direction. So cross-entropy punishes confident-wrong
+predictions extremely harshly — they push $\log p$ toward $-\infty$ —
+while letting near-the-threshold mistakes off with a small penalty.
+Exactly the shape we wanted.
+
+**Why this specific formula?** It is not a heuristic. Cross-entropy is
+what you get from maximum likelihood estimation. If you model each $y_i$
+as a Bernoulli draw with probability $p_i = \sigma(w^\top x_i + b)$, the
+likelihood of the observed labels is $\prod_i p_i^{y_i}(1 - p_i)^{1 -
+y_i}$. Take the log and the negative, divide by $n$, and you get cross-
+entropy. Minimising it is equivalent to maximising the likelihood of the
+training data under the model.
+
+Cross-entropy also has the practical property that pairs beautifully with
+the sigmoid: their gradient, computed in the next section, is remarkably
+clean.
+
+## 6. Training: gradient descent on cross-entropy
+
+Time to learn the parameters. We minimise
+
+$$L(w, b) = -\frac{1}{n} \sum_{i=1}^n \big[ y_i \log p_i + (1 - y_i) \log(1 - p_i) \big]$$
+
+with respect to $w$ and $b$. Computing the gradient is a careful exercise
+in the chain rule, and the result is the cleanest thing in the chapter:
+
+$$\nabla_w L = \frac{1}{n} \sum_{i=1}^n (p_i - y_i)\, x_i, \qquad \frac{\partial L}{\partial b} = \frac{1}{n} \sum_{i=1}^n (p_i - y_i).$$
+
+The gradient is *the prediction error times the input*, averaged over the
+training set. Compare to linear regression's gradient: $\nabla_w L_{
+\mathrm{MSE}} = \frac{2}{n} X^\top(X w + b - y)$. The forms are
+essentially identical — both proportional to (prediction − label) times
+the input. This is not coincidence. It's a sign that the sigmoid and
+cross-entropy were chosen to match. Together they cancel out the
+chain-rule clutter that MSE-plus-sigmoid would have produced.
+
+The training algorithm is now exactly Chapter 6's gradient descent.
+Initialise $w$ and $b$ to something (zeros work fine for logistic
+regression), then repeat:
+
+```
+g_w ← (1/n) Σ (p_i - y_i) x_i
+g_b ← (1/n) Σ (p_i - y_i)
+w ← w - α · g_w
+b ← b - α · g_b
+```
+
+until the loss stops decreasing. That's it. That's the entire training
+algorithm.
+
+The visualisation below shows what this looks like. On the left, the
+decision boundary in data space, with the probability heatmap. On the
+right, the cross-entropy loss as a function of training step. Press
+Play and watch both panels move in lockstep — every step on the right is
+one gradient update, producing one new boundary on the left.
+
+<TrainingDynamics />
+
+A few things to try:
+
+- On **blobs**, watch how cleanly the boundary slides into place. The
+  loss curve drops sharply and then flattens — that's GD finding the
+  basin of attraction.
+- On **overlap**, the loss can't reach zero — the classes share territory
+  so some mistakes are unavoidable. GD converges to the best linear
+  boundary, but "best" still misclassifies the points in the overlap
+  region.
+- On **moons**, the loss flatlines high above zero. The model is doing
+  the best a *linear* classifier can do, but the data isn't linearly
+  separable, so even the best linear classifier is bad. Adjust the
+  learning rate — there's nothing you can change about the optimiser
+  that will fix a model that's structurally too simple for the data.
+
+## 7. The decision boundary is linear
+
+We've now seen this from two angles, but it's worth saying once more
+explicitly because it's the central geometric fact of logistic regression.
+
+The model's output is nonlinear in $x$ (because of the sigmoid). But the
+*boundary* — the set of points where the model is exactly undecided —
+is linear, because $\sigma(z) = 0.5$ is equivalent to $z = 0$, which is
+the linear equation $w^\top x + b = 0$.
+
+The practical consequence is that logistic regression can only separate
+classes that are *linearly* separable (or close to it). The moons dataset
+is the textbook counterexample: two interleaved half-circles. No straight
+line cuts them apart, so no logistic regression model can classify them
+perfectly. The model trains, converges to its best straight line, and
+that best straight line is still bad.
+
+There are several ways forward for non-linearly separable data, and the
+book covers each of them in turn:
+
+- **Feature engineering** (Chapter 17): construct new features from the
+  raw inputs — for moons, adding $x^2$ as a feature would suddenly make
+  the data linearly separable in the augmented feature space.
+- **Kernel methods** (Chapter 15, support vector machines): implicitly
+  use a richer feature space without computing it explicitly.
+- **Neural networks** (Chapters 21–22): stack multiple logistic
+  regressions, letting the model *learn* its own feature transformations.
+
+For now, take from this only: logistic regression is a linear classifier
+in the input space. When that's enough, it works beautifully. When it
+isn't, no amount of training will save it — you need a richer model.
+
+## 8. Probability is information
+
+One last thing worth saying about logistic regression. Its output is a
+*probability*, not just a class. That is more useful than it might first
+appear.
+
+Consider two binary predictions: one says "class 1 with probability 0.51",
+the other says "class 1 with probability 0.99". If we only kept the
+hard 0/1 decision (both are 1) we'd be discarding most of the information
+the model produces. The 0.99 prediction is something we can take to the
+bank. The 0.51 prediction is barely better than a coin flip and we should
+treat it cautiously — perhaps gather more data, ask a human reviewer, or
+hedge our action.
+
+This matters in real systems. A fraud-detection model that outputs
+probabilities can be tuned per use case: block transactions above 0.95,
+flag for human review between 0.5 and 0.95, ignore below 0.5. A medical
+test that says "0.6 probability of disease" tells you something useful
+that "positive" alone never could.
+
+Probabilities also let us reason about *calibration*. A well-calibrated
+classifier predicts 0.7 on examples that turn out to be class 1 about 70%
+of the time. Calibration is a stronger condition than accuracy and is
+the property that makes probabilities trustworthy. Logistic regression is
+naturally well-calibrated on the data it's trained on, which is part of
+why it remains popular in domains where probabilities matter — credit
+scoring, medical diagnosis, insurance.
+
+We will revisit metrics like accuracy, precision, recall, ROC, and
+calibration in Chapter 10. For now, keep in mind that the probabilistic
+output is a feature of logistic regression, not a side effect.
+
+## 9. Complexity
+
+**Per-step cost.** Each gradient descent step touches every training
+example once and computes a sigmoid and a dot product per example. For
+$n$ examples and $p$ features that is $O(np)$, the same as linear
+regression. Mini-batch SGD (Chapter 6, §5) cuts this to $O(Bp)$ for batch
+size $B \ll n$.
+
+**Steps to converge.** Cross-entropy on a linear model is *convex* in
+$w$ and $b$. Convex meaning the loss surface has no spurious local
+minima — only one minimum, the global one. Gradient descent on a convex
+problem is guaranteed to converge to that global minimum from any
+starting point, given a reasonable learning rate. This is a major
+property: training logistic regression is essentially robust, in a way
+that training neural networks is not.
+
+The convexity comes from the sigmoid + cross-entropy combination
+specifically — it would not hold if we'd used MSE with sigmoid, which is
+another reason we chose cross-entropy.
+
+## 10. Implementing it yourself
+
+The whole algorithm in NumPy. Two-feature dataset, full gradient descent,
+print the loss and accuracy along the way.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+# Generate a 2D classification dataset
+rng = np.random.default_rng(42)
+n = 200
+mean_0 = np.array([-1.5, 0.5])
+mean_1 = np.array([1.5, -0.5])
+X = np.vstack([
+    rng.normal(mean_0, 0.8, (n // 2, 2)),
+    rng.normal(mean_1, 0.8, (n // 2, 2)),
+])
+y = np.concatenate([np.zeros(n // 2), np.ones(n // 2)])
+
+# Logistic regression from scratch
+def sigmoid(z):
+    # Numerically stable: branch on sign of z
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+def loss(w, b):
+    p = sigmoid(X @ w + b)
+    eps = 1e-12
+    return -np.mean(y * np.log(p + eps) + (1 - y) * np.log(1 - p + eps))
+
+def accuracy(w, b):
+    return np.mean((sigmoid(X @ w + b) >= 0.5) == y)
+
+# Initialise and train
+w = np.zeros(2)
+b = 0.0
+lr = 0.5
+
+for step in range(100):
+    p = sigmoid(X @ w + b)
+    grad_w = X.T @ (p - y) / n
+    grad_b = np.mean(p - y)
+    w -= lr * grad_w
+    b -= lr * grad_b
+    if step % 10 == 0:
+        print(f"step {step:3d}: loss = {loss(w, b):.4f}, accuracy = {accuracy(w, b):.3f}")
+
+print(f"\\nFinal w = {w}")
+print(f"Final b = {b:.4f}")
+print(f"Final accuracy = {accuracy(w, b):.3f}")
+`}
+/>
+
+That is the entire classifier. About fifteen lines of meaningful code,
+on top of the gradient descent skeleton from Chapter 6. Every piece you
+just saw — the sigmoid, the cross-entropy, the gradient, the GD loop —
+generalises to deeper models with very few changes.
+
+## 11. Problems
+
+### Problem 1 — Why is MSE a poor loss for classification?
+
+A conceptual question. Suppose the true label is $y = 0$ and the model
+confidently predicts $p = 0.99$. Compare how much the MSE loss and the
+cross-entropy loss penalise this confident-wrong prediction, and think
+about what that means for gradient descent.
+
+<details>
+  <summary>Show solution</summary>
+
+MSE for this example is $(0.99 - 0)^2 = 0.9801$ — under 1.
+
+Cross-entropy is $-\log(1 - 0.99) = -\log(0.01) \approx 4.6$ — almost
+five times larger.
+
+But the deeper issue is what happens to the *gradient*. Through the chain
+rule, the MSE gradient with respect to the logit $z = w^\top x + b$
+includes the factor $\sigma'(z) = \sigma(z)(1 - \sigma(z))$. When the
+model is confident, $\sigma(z)$ is very close to 0 or 1, so $\sigma'(z)$
+is nearly zero, and the gradient vanishes. The model has no information
+to learn from — even though it is dramatically wrong.
+
+Cross-entropy paired with sigmoid eliminates this term: the gradient is
+simply $(p - y) \cdot x$. The further off the prediction, the larger the
+gradient, and the more decisively the model updates. The pairing of
+sigmoid + cross-entropy is not arbitrary — it produces a gradient that
+behaves the way we'd want.
+
+</details>
+
+### Problem 2 — Implement the sigmoid (numerically stable)
+
+The naïve formula $1 / (1 + e^{-z})$ overflows when $z$ is very negative
+($e^{-z}$ blows up). Implement a version that stays numerically stable
+for any finite $z$. Test it on a few extreme values.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(z):
+    # Your code: numerically stable sigmoid using a branch on the sign of z.
+    pass
+
+# Should print 1.0, 0.5, 1e-300-ish, not 'inf' or 'nan'.
+print(sigmoid(np.array([0, 1000, -1000, 50, -50])))
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+print(sigmoid(np.array([0, 1000, -1000, 50, -50])))
+`}
+/>
+
+The trick: for $z \geq 0$, use $1 / (1 + e^{-z})$, which never overflows
+because $e^{-z} \in (0, 1]$. For $z < 0$, use the algebraically
+equivalent $e^z / (1 + e^z)$, which also never overflows because
+$e^z \in (0, 1)$. The two branches agree at $z = 0$ and stay in range
+everywhere.
+
+</details>
+
+### Problem 3 — Implement binary cross-entropy
+
+Given true labels $y \in \{0, 1\}^n$ and predicted probabilities
+$p \in (0, 1)^n$, compute the average binary cross-entropy. Don't forget
+the small epsilon to avoid $\log(0)$.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def binary_cross_entropy(y, p):
+    # Your code:
+    pass
+
+# Quick test
+y = np.array([0, 0, 1, 1])
+p_perfect = np.array([0.01, 0.05, 0.95, 0.99])
+p_random = np.array([0.5, 0.5, 0.5, 0.5])
+p_wrong = np.array([0.95, 0.99, 0.01, 0.05])
+
+print(f"Perfect predictions:    loss = {binary_cross_entropy(y, p_perfect):.4f}")
+print(f"Random predictions:     loss = {binary_cross_entropy(y, p_random):.4f}")
+print(f"Confidently wrong:      loss = {binary_cross_entropy(y, p_wrong):.4f}")
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def binary_cross_entropy(y, p):
+    eps = 1e-12
+    return -np.mean(y * np.log(p + eps) + (1 - y) * np.log(1 - p + eps))
+
+y = np.array([0, 0, 1, 1])
+p_perfect = np.array([0.01, 0.05, 0.95, 0.99])
+p_random = np.array([0.5, 0.5, 0.5, 0.5])
+p_wrong = np.array([0.95, 0.99, 0.01, 0.05])
+
+print(f"Perfect predictions:    loss = {binary_cross_entropy(y, p_perfect):.4f}")
+print(f"Random predictions:     loss = {binary_cross_entropy(y, p_random):.4f}")
+print(f"Confidently wrong:      loss = {binary_cross_entropy(y, p_wrong):.4f}")
+`}
+/>
+
+The perfect predictions get a loss near zero. Random guessing gives
+$-\log 0.5 \approx 0.69$ — the well-known "log-2 nats" baseline. The
+confidently wrong predictions get a loss around 4.6 each, dominated by
+the $\log(0.01)$ terms.
+
+</details>
+
+### Problem 4 — Train logistic regression end to end
+
+Combine the building blocks from Problems 2 and 3 into a full training
+loop. Train for 200 steps with learning rate 0.5 and report the final
+accuracy.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+# Data
+rng = np.random.default_rng(7)
+n = 300
+X = np.vstack([
+    rng.normal([-1.5, 0.5], 0.8, (n // 2, 2)),
+    rng.normal([1.5, -0.5], 0.8, (n // 2, 2)),
+])
+y = np.concatenate([np.zeros(n // 2), np.ones(n // 2)])
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+# Your code:
+#   1. Initialise w = zeros, b = 0
+#   2. Run 200 gradient descent steps with lr = 0.5
+#   3. Print loss + accuracy every 20 steps
+#   4. Report final accuracy
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(7)
+n = 300
+X = np.vstack([
+    rng.normal([-1.5, 0.5], 0.8, (n // 2, 2)),
+    rng.normal([1.5, -0.5], 0.8, (n // 2, 2)),
+])
+y = np.concatenate([np.zeros(n // 2), np.ones(n // 2)])
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+w = np.zeros(2)
+b = 0.0
+lr = 0.5
+
+for step in range(200):
+    p = sigmoid(X @ w + b)
+    grad_w = X.T @ (p - y) / n
+    grad_b = np.mean(p - y)
+    w -= lr * grad_w
+    b -= lr * grad_b
+    if step % 20 == 0:
+        loss = -np.mean(y * np.log(p + 1e-12) + (1 - y) * np.log(1 - p + 1e-12))
+        acc = np.mean((p >= 0.5) == y)
+        print(f"step {step:3d}: loss = {loss:.4f}, accuracy = {acc:.3f}")
+
+p_final = sigmoid(X @ w + b)
+print(f"\\nFinal accuracy: {np.mean((p_final >= 0.5) == y):.3f}")
+print(f"Final w = {w}")
+print(f"Final b = {b:.4f}")
+`}
+/>
+
+You should see the loss drop from about 0.69 (random) to roughly 0.05
+within 200 steps, with accuracy climbing past 99%. The two-blob problem
+is easy — this is logistic regression doing what it does best.
+
+</details>
+
+### Problem 5 — Where logistic regression breaks
+
+Re-run Problem 4 but on the *moons* dataset — two interleaved
+half-circles that are not linearly separable. Train as before and
+observe what happens. Then add a quadratic feature ($x_1^2$) and re-train.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def make_moons(n, noise=0.15, seed=0):
+    rng = np.random.default_rng(seed)
+    half = n // 2
+    t1 = np.linspace(0, np.pi, half)
+    t2 = np.linspace(0, np.pi, n - half)
+    X0 = np.column_stack([np.cos(t1) - 0.5, np.sin(t1) - 0.2]) + rng.normal(0, noise, (half, 2))
+    X1 = np.column_stack([1 - np.cos(t2) - 0.5, -np.sin(t2) + 0.2]) + rng.normal(0, noise, (n - half, 2))
+    X = np.vstack([X0, X1])
+    y = np.concatenate([np.zeros(half), np.ones(n - half)])
+    return X, y
+
+X, y = make_moons(300, seed=0)
+n = X.shape[0]
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+# Your code:
+#   Part A — Train logistic regression on (X, y) directly. Report accuracy.
+#   Part B — Add a third feature: x1_squared = X[:, 0] ** 2. Train on the
+#            3-feature dataset and report accuracy again.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def make_moons(n, noise=0.15, seed=0):
+    rng = np.random.default_rng(seed)
+    half = n // 2
+    t1 = np.linspace(0, np.pi, half)
+    t2 = np.linspace(0, np.pi, n - half)
+    X0 = np.column_stack([np.cos(t1) - 0.5, np.sin(t1) - 0.2]) + rng.normal(0, noise, (half, 2))
+    X1 = np.column_stack([1 - np.cos(t2) - 0.5, -np.sin(t2) + 0.2]) + rng.normal(0, noise, (n - half, 2))
+    X = np.vstack([X0, X1])
+    y = np.concatenate([np.zeros(half), np.ones(n - half)])
+    return X, y
+
+X, y = make_moons(300, seed=0)
+n = X.shape[0]
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+def train(X, y, lr=0.5, steps=400):
+    n, p = X.shape
+    w = np.zeros(p)
+    b = 0.0
+    for _ in range(steps):
+        pr = sigmoid(X @ w + b)
+        w -= lr * X.T @ (pr - y) / n
+        b -= lr * np.mean(pr - y)
+    pr = sigmoid(X @ w + b)
+    return w, b, np.mean((pr >= 0.5) == y)
+
+# Part A — raw features
+w, b, acc = train(X, y)
+print(f"Part A (2 features):  accuracy = {acc:.3f}")
+
+# Part B — add x1**2 as a third feature
+X_aug = np.column_stack([X, X[:, 0] ** 2])
+w, b, acc = train(X_aug, y)
+print(f"Part B (3 features):  accuracy = {acc:.3f}")
+`}
+/>
+
+On the raw moons data, logistic regression typically reaches accuracy
+around 85% — it has found the best straight line, but the two arcs are
+curved, so a straight line cannot separate them perfectly. After adding
+$x_1^2$ as a third feature, accuracy jumps to roughly 95%, because the
+moons *are* separable in the 3D space $(x_1, x_2, x_1^2)$.
+
+This is the entire motivation for the next several chapters. Feature
+engineering (Chapter 17), kernel methods (Chapter 15), and neural
+networks (Chapters 21–22) are all different answers to the same question:
+how do you make a linear classifier work on data that isn't linearly
+separable? The answer always involves changing the *feature space*,
+either by hand, implicitly, or by learning the transformation.
+
+</details>
+
+---
+
+*Next: Chapter 8 — Multi-class classification.* What happens when you
+have three or more classes, and the trick (softmax) that lets logistic
+regression generalise to as many classes as you like.
