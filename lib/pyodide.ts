@@ -48,7 +48,14 @@ export function loadPyodideOnce(): Promise<PyodideInstance> {
     if (!window.loadPyodide) {
       throw new Error('Pyodide script loaded but loadPyodide is undefined.')
     }
-    return window.loadPyodide({ indexURL: `${CDN}/` })
+    const pyodide = await window.loadPyodide({ indexURL: `${CDN}/` })
+    // Preload numpy. Nearly every editor in the book uses it, so paying
+    // the ~3 s preload cost once per session is much better than failing
+    // editors with "ModuleNotFoundError: No module named 'numpy'" on first
+    // run. Recorded in loadedPackages so runPython() doesn't reload it.
+    await pyodide.loadPackage(['numpy'])
+    loadedPackages.add('numpy')
+    return pyodide
   })()
   return pyodidePromise
 }

@@ -413,9 +413,14 @@ sophisticated optimisers in the previous sections all share this skeleton
 
 ## 11. Problems
 
+### Problem 1 — Why does gradient descent slow down near the minimum?
+
+A conceptual question. No code. Think about what the gradient *is* in terms
+of the geometry of the loss surface, and what happens to it as you approach
+a minimum.
+
 <details>
-<summary>**Problem 1** (conceptual). Why does gradient descent slow down as
-it approaches a minimum?</summary>
+  <summary>Show solution</summary>
 
 Because the gradient *is* the slope. Near a minimum the surface is nearly
 flat, so the slope is small. The update step is $\alpha$ times the
@@ -431,16 +436,14 @@ $\varepsilon$, which gets us close enough.
 
 </details>
 
-<details>
-<summary>**Problem 2.** Implement vanilla gradient descent for the 1D
-function $f(x) = (x - 3)^2 + 5$.</summary>
+### Problem 2 — Implement vanilla gradient descent (1D)
 
-The derivative is $f'(x) = 2(x - 3)$. The minimum is at $x = 3$ with
-$f(3) = 5$.
+Fill in the loop for $f(x) = (x - 3)^2 + 5$. The derivative is
+$f'(x) = 2(x - 3)$, and the minimum is at $x = 3$ with $f(3) = 5$. Start
+at $x = 0$, use $\alpha = 0.1$, run 30 steps, and print every 5 steps.
 
 <PyodideEditor
-  initialCode={`# Implement gradient descent on f(x) = (x - 3)^2 + 5
-# Start at x = 0, use lr = 0.1, run 30 steps.
+  initialCode={`# Gradient descent on f(x) = (x - 3)^2 + 5
 
 def f(x):
     return (x - 3)**2 + 5
@@ -448,19 +451,19 @@ def f(x):
 def df(x):
     return 2 * (x - 3)
 
-# Your code below
 x = 0.0
 lr = 0.1
 
 for step in range(30):
-    # 1. Compute gradient
+    # 1. Compute the gradient
     # 2. Update x
     # 3. Print step, x, f(x) every 5 steps
     pass
 `}
 />
 
-**Solution:**
+<details>
+  <summary>Show solution</summary>
 
 <PyodideEditor
   initialCode={`def f(x):
@@ -488,9 +491,10 @@ minimum by a constant factor of $(1 - 2\alpha)$.
 
 </details>
 
-<details>
-<summary>**Problem 3.** Generalise to 2D. Implement gradient descent on
-$f(x, y) = x^2 + 4y^2$ using NumPy vectors.</summary>
+### Problem 3 — Generalise to 2D with NumPy vectors
+
+Implement gradient descent on $f(x, y) = x^2 + 4y^2$. Start at
+$\theta = (4, 1)$, use $\alpha = 0.1$, run 40 steps, print every 5 steps.
 
 <PyodideEditor
   initialCode={`import numpy as np
@@ -503,14 +507,15 @@ def grad(theta):
     x, y = theta
     return np.array([2 * x, 8 * y])
 
-# Start at theta = (4, 1), lr = 0.1, 40 steps.
-# Print every 5 steps.
+theta = np.array([4.0, 1.0])
+lr = 0.1
 
-# Your code:
+# Your code: 40 steps of GD. Print step, theta, loss every 5 steps.
 `}
 />
 
-**Solution:**
+<details>
+  <summary>Show solution</summary>
 
 <PyodideEditor
   initialCode={`import numpy as np
@@ -543,14 +548,16 @@ momentum is designed to fix.
 
 </details>
 
-<details>
-<summary>**Problem 4.** Add momentum. Modify the optimiser from Problem 3
-to use heavy-ball momentum with $\beta = 0.9$. Compare convergence speed.</summary>
+### Problem 4 — Add momentum
 
-The momentum update is:
+Modify the optimiser from Problem 3 to use heavy-ball momentum with
+$\beta = 0.9$. The update is:
 
 $$v \leftarrow \beta v + g, \qquad \theta \leftarrow \theta - \alpha v$$
 
+You may need to lower the learning rate compared to Problem 3 — momentum
+amplifies effective step size.
+
 <PyodideEditor
   initialCode={`import numpy as np
 
@@ -563,15 +570,16 @@ def grad(theta):
     return np.array([2 * x, 8 * y])
 
 theta = np.array([4.0, 1.0])
-lr = 0.1
+lr = 0.05
 beta = 0.9
 v = np.zeros(2)
 
-# Your code: implement the momentum update for 40 steps.
+# Your code: 40 steps with momentum. Print loss every 5 steps.
 `}
 />
 
-**Solution:**
+<details>
+  <summary>Show solution</summary>
 
 <PyodideEditor
   initialCode={`import numpy as np
@@ -584,9 +592,8 @@ def grad(theta):
     x, y = theta
     return np.array([2 * x, 8 * y])
 
-# With momentum
 theta = np.array([4.0, 1.0])
-lr = 0.05      # momentum amplifies steps; lower the LR
+lr = 0.05
 beta = 0.9
 v = np.zeros(2)
 
@@ -607,15 +614,13 @@ the accumulated velocity carries past the minimum before decaying.
 
 </details>
 
-<details>
-<summary>**Problem 5** (putting it together). Use gradient descent to fit
-linear regression *from scratch* — no closed form, just GD on the MSE
-loss.</summary>
+### Problem 5 — Putting it together: linear regression from scratch
 
-Generate synthetic data with a known true relationship, then recover the
-coefficients with gradient descent. The loss is
+Use gradient descent to fit linear regression *with no closed form* — just
+GD on the MSE loss. The loss is
 $L(\beta) = \frac{1}{n}\sum_i (x_i^\top \beta - y_i)^2$, with gradient
-$\nabla L(\beta) = \frac{2}{n} X^\top (X\beta - y)$.
+$\nabla L(\beta) = \frac{2}{n} X^\top (X\beta - y)$. Generate synthetic
+data with a known relationship, then recover the coefficients.
 
 <PyodideEditor
   initialCode={`import numpy as np
@@ -631,13 +636,15 @@ y = X @ true_beta + 0.1 * np.random.randn(n)
 beta = np.zeros(3)
 lr = 0.05
 
-# Your code: 200 GD steps on MSE loss.
-# Print the loss every 20 steps.
-# At the end, print the recovered beta and compare to true_beta.
+# Your code:
+#  - 200 GD steps on MSE loss
+#  - Print loss every 20 steps
+#  - At the end, print the recovered beta alongside true_beta
 `}
 />
 
-**Solution:**
+<details>
+  <summary>Show solution</summary>
 
 <PyodideEditor
   initialCode={`import numpy as np
