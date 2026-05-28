@@ -1,0 +1,686 @@
+import GradientDescent1D from '@/components/GradientDescent1D'
+import GradientDescent2D from '@/components/GradientDescent2D'
+import LRComparison from '@/components/LRComparison'
+import PyodideEditor from '@/components/PyodideEditor'
+
+export const metadata = {
+  title: 'Gradient descent',
+  description:
+    'How models actually learn. Walk a loss landscape blindfolded, feel the slope, take a step. The algorithm that powers nearly everything else in this book — visualised, derived, implemented, and put under the microscope.',
+  openGraph: {
+    title: 'Gradient descent',
+    description:
+      'An interactive walk-through of gradient descent — the optimisation algorithm at the heart of modern machine learning.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 6 · Part II — Linear models
+</p>
+
+# Gradient descent
+
+*Finding the bottom of a hill, blindfolded. The algorithm that quietly powers
+nearly everything else in this book.*
+
+Picture being dropped onto a hilly landscape, blindfolded. Your job: find
+the lowest point. You can't see anything. But you *can* feel the slope of
+the ground beneath your feet. So you take a small step in the steepest
+downhill direction, feel again, take another step. After many steps, you
+arrive somewhere low.
+
+That algorithm — *follow the slope down, repeatedly* — is gradient descent.
+And almost every machine learning model you'll meet for the rest of this
+book is trained using some variant of it.
+
+## 1. The optimisation problem
+
+Most of supervised machine learning has the same shape underneath. There
+is a model with parameters $\theta$. There is a loss function $L(\theta)$
+that scores how badly the model fits the training data at the current
+$\theta$ — high loss is bad, low loss is good. The job is to find the
+$\theta$ that minimises $L$:
+
+$$\theta^* = \arg\min_\theta L(\theta)$$
+
+That's it. ML is mostly optimisation in a costume.
+
+The previous chapter introduced linear regression, and showed that for
+*that specific* loss you can solve the optimisation in closed form — write
+down the normal equations, solve a linear system, done. But linear
+regression is the exception. For most models — logistic regression with
+non-trivial regularisation, neural networks, almost anything interesting
+— there is no closed-form solution. The loss is a function that has no
+nice analytical minimum. We need an algorithm that searches for the
+minimum iteratively.
+
+Gradient descent is the search algorithm of choice. It is not the only
+option (Newton's method, BFGS, evolutionary search, and others all exist),
+but it has a property the others lack: it scales. The cost per iteration
+stays manageable even when $\theta$ has billions of components, which is
+why it powers everything from linear models to LLMs.
+
+## 2. Following the gradient
+
+The strategy is direct. Start somewhere in parameter space. Look at the
+slope of the loss at that point. Take a step in the downhill direction.
+Repeat.
+
+```
+choose initial θ
+repeat:
+    g ← gradient of L at θ
+    θ ← θ - α · g
+until converged
+```
+
+The parameter $\alpha > 0$ is the *learning rate* — how big a step we take
+in the downhill direction. We will spend much of this chapter understanding
+$\alpha$.
+
+In one dimension this is easy to visualise. The "gradient" of a 1D
+function is just its derivative — the slope at a point. Positive slope
+means the function is going up to the right; negative slope means it is
+going down. To go *down*, we step in the direction opposite to the slope.
+
+<GradientDescent1D />
+
+A few things to notice as you play with it:
+
+- Far from the minimum, the slope is large, so we take big steps.
+- Close to the minimum, the slope is small, so the steps shrink. The
+  algorithm automatically slows down as it approaches the goal.
+- At the minimum, the slope is zero. That is where the algorithm stops.
+- On the *double-well* function with a moderate learning rate, you can
+  see the trajectory get stuck in whichever well you started near — even
+  though there is a second, equally good minimum on the other side.
+
+The last point is one of the central tensions in gradient-based methods:
+you only see the part of the surface you happen to be on. Gradient descent
+is a local algorithm. It knows nothing about the global shape of the loss.
+
+## 3. The gradient: what it actually is
+
+In one dimension we called it "the slope." In higher dimensions the right
+word is *gradient*, and it is a vector.
+
+Suppose $L(\theta)$ is a function of a parameter vector
+$\theta = (\theta_1, \theta_2, \dots, \theta_p)$. The gradient is the
+vector of partial derivatives:
+
+$$\nabla L(\theta) = \left[ \frac{\partial L}{\partial \theta_1},\; \frac{\partial L}{\partial \theta_2},\; \dots,\; \frac{\partial L}{\partial \theta_p} \right]$$
+
+Each component tells you how $L$ changes when you nudge just that one
+parameter, holding the others fixed.
+
+Here is the key fact, and it is worth pausing on: the gradient points in
+the direction of *steepest ascent*. Among all directions you could walk
+from the current $\theta$, the gradient direction is the one that
+increases $L$ the fastest. So to decrease $L$ the fastest, walk in the
+*opposite* direction: $-\nabla L$.
+
+The update rule for gradient descent, in full vector form:
+
+$$\theta \leftarrow \theta - \alpha \nabla L(\theta)$$
+
+A worked example. Take $L(\theta) = \theta_1^2 + \theta_2^2$ — a
+paraboloid bowl with its minimum at the origin. The partial derivatives:
+
+$$\frac{\partial L}{\partial \theta_1} = 2\theta_1, \quad \frac{\partial L}{\partial \theta_2} = 2\theta_2$$
+
+So $\nabla L(\theta) = (2\theta_1, 2\theta_2)$. At the point $\theta = (1, 3)$
+the gradient is $(2, 6)$ — it points up and to the right, away from the
+minimum at the origin. To descend we step in the direction $(-2, -6)$,
+scaled by the learning rate.
+
+Below is the same idea in 2D, animated. Click anywhere on the surface to
+choose a starting position. Watch the trajectory descend.
+
+<GradientDescent2D />
+
+A few things to play with:
+
+- On the **bowl** the gradient always points directly away from the centre,
+  so the trajectory is a straight line to the minimum. The simplest case.
+- On the **valley** the surface is much steeper in $y$ than in $x$. The
+  gradient is dominated by the $y$ component, so early steps oscillate
+  back and forth across the valley while making slow progress along it.
+  This is the textbook *ill-conditioned* problem; we will fix it in §6
+  with momentum.
+- On the **saddle**, start near the $y$ axis. The trajectory falls quickly
+  into the saddle and then sits there, because the gradient is nearly
+  zero at the saddle. Vanilla gradient descent has no way to know it
+  is not at a minimum.
+- On **Himmelblau**, click in different corners. Which of the four minima
+  the algorithm finds depends entirely on where you start. There is no
+  guarantee of finding the best one.
+
+## 4. Choosing a learning rate
+
+The learning rate $\alpha$ is the single most consequential hyperparameter
+in gradient-based optimisation. Set it well and the algorithm converges
+quickly to a good minimum. Set it badly and it either crawls along forever
+or explodes to infinity.
+
+The danger of too small:
+
+- Each step covers little ground.
+- Convergence requires many iterations.
+- For expensive losses (deep networks, large datasets), each iteration
+  costs real time. A 10× smaller learning rate often means a 10× longer
+  training run.
+
+The danger of too large:
+
+- Each step overshoots whatever local minimum it was aiming for.
+- The trajectory oscillates around the minimum, sometimes moving *further
+  away* with each step.
+- Past a critical threshold, the loss strictly increases each step and
+  the parameters diverge to infinity.
+
+You can see all of this in one widget. Same problem, same starting
+position, four different learning rates running in parallel:
+
+<LRComparison />
+
+The smallest learning rate barely moves. The largest overshoots and (for
+high enough values) wanders or diverges. There is usually a Goldilocks
+band of rates that converge reasonably — and within that band, larger
+rates converge faster, up to the point where overshooting starts to
+dominate.
+
+In practice, three strategies are common:
+
+1. **Grid search.** Try a small list of learning rates — typically
+   $\{10^{-4}, 10^{-3}, 10^{-2}, 10^{-1}\}$ — and pick the best one on a
+   held-out validation set.
+2. **Adaptive methods.** Use an optimiser like Adam (§7) that adjusts the
+   effective rate per-parameter automatically. This makes the choice of
+   $\alpha$ much less sensitive.
+3. **Schedules.** Use a learning-rate *schedule* that starts large and
+   decreases over training. Common choices: step decay (drop by a factor
+   every $k$ epochs), cosine annealing, or a brief warmup followed by
+   decay. Standard in deep learning.
+
+## 5. Batch, stochastic, and mini-batch
+
+So far we have assumed the gradient is computed using the entire dataset.
+For an ML loss of the form
+
+$$L(\theta) = \frac{1}{n} \sum_{i=1}^n \ell(x_i, y_i; \theta)$$
+
+the *full-batch* gradient is
+
+$$\nabla L(\theta) = \frac{1}{n} \sum_{i=1}^n \nabla \ell(x_i, y_i; \theta).$$
+
+When $n$ is small, this is fine. When $n$ is in the millions? Each gradient
+evaluation requires touching every training example. A single optimisation
+step takes seconds; running for thousands of steps takes hours or days.
+
+The fix is *stochastic gradient descent* (SGD). Instead of computing the
+gradient over all $n$ examples, compute it over just one, chosen at random
+each step:
+
+$$g = \nabla \ell(x_i, y_i; \theta) \quad \text{for a single random } i.$$
+
+This single-example gradient is a noisy estimate of the full-batch
+gradient. It points roughly in the right direction but with a lot of
+variance from one step to the next. The trajectory is therefore noisy
+too — it zig-zags toward the minimum rather than gliding smoothly.
+
+But it is cheap. Each step costs the same as evaluating the loss on one
+example. We can take many noisy steps in the time one full-batch step
+would take, and on most problems the cumulative progress is faster.
+
+The compromise — and what virtually everyone actually uses — is
+*mini-batch SGD*: compute the gradient over a small random subset of the
+data, typically 32, 64, or 256 examples. Less noisy than pure SGD, vastly
+cheaper than full-batch, and convenient to vectorise on a GPU.
+
+There is a subtle bonus: the noise in SGD can actually *help*. Noise lets
+the algorithm jiggle out of bad local minima and saddle points that
+vanilla gradient descent would get stuck on. The noise is a feature, not
+just a side effect.
+
+## 6. Momentum
+
+There is a particular failure mode of vanilla gradient descent worth
+seeing in detail.
+
+Imagine a loss surface that is a long, narrow valley — much steeper
+across the short direction than along the long one (the **valley** preset
+in the widget above is exactly this). Vanilla gradient descent oscillates
+back and forth across the narrow direction at each step, making only slow
+progress along the long direction. The trajectory looks like a zigzag.
+You can see this clearly: switch to **valley** and crank the learning rate
+toward the upper limit.
+
+The fix is *momentum*. Instead of stepping in the gradient direction, step
+in the direction of a running average of recent gradients. The update
+becomes:
+
+$$v \leftarrow \beta v + g$$
+$$\theta \leftarrow \theta - \alpha v$$
+
+where $\beta \in [0, 1)$ is the momentum coefficient. A typical value is
+$\beta = 0.9$, meaning each step's velocity is 90% inherited from the
+previous step's velocity plus 100% of the current gradient.
+
+The intuition is in the name. Imagine a ball rolling down the loss
+surface. Without momentum, the ball's direction is reset at each step
+to whatever the local gradient says — including the irrelevant oscillating
+component across the valley. With momentum, the ball builds up speed in
+directions that are consistent over time. In the valley case the
+consistent direction is *along* the valley, not across it: the oscillations
+cancel out across consecutive steps, while the steady forward component
+compounds.
+
+Momentum dramatically accelerates convergence on ill-conditioned problems.
+It has been a default ingredient in deep-learning optimisers for over a
+decade. The version above is "heavy-ball" momentum; a slightly more
+sophisticated variant called *Nesterov momentum* looks one step ahead
+before computing the gradient and often performs marginally better.
+
+## 7. Adaptive learning rates
+
+A separate idea: instead of one global learning rate $\alpha$, give every
+parameter its own effective rate, adjusted automatically based on the
+history of its gradients.
+
+The motivation is that in deep models, different parameters have wildly
+different gradient magnitudes. Some parameters see huge gradients
+throughout training; others see tiny ones. A learning rate that is right
+for the big-gradient parameters explodes the small-gradient ones, and
+vice versa. A single global $\alpha$ has to be a poor compromise.
+
+The three families you will meet in code:
+
+**AdaGrad** keeps a running sum of squared gradients per parameter and
+scales each parameter's update by the inverse square root of that sum.
+Parameters that have seen large gradients accumulate large sums and
+therefore get smaller updates. Elegant in theory; in practice the running
+sum grows monotonically and eventually the effective rate decays to zero,
+so AdaGrad eventually freezes.
+
+**RMSprop** fixes AdaGrad's monotonic-decay problem by replacing the
+running sum with an *exponential moving average* of squared gradients. The
+effective rate adapts to recent history rather than all history, so the
+optimiser keeps moving indefinitely.
+
+**Adam** combines RMSprop with momentum, plus a small bias-correction
+term. It is the default modern choice — robust, requires little tuning,
+and usually works out of the box. The vast majority of deep-learning
+papers in the last five years use Adam or one of its close relatives.
+
+We will not implement these in detail here; they are a standard part of
+every deep-learning library. The point is that when you see
+`torch.optim.Adam` in code, you now know what is inside it: per-parameter
+adaptive rates plus momentum.
+
+## 8. Where gradient descent struggles
+
+Gradient descent is not magic. A short tour of the common failure modes.
+
+**Saddle points.** In high dimensions, most points where the gradient is
+zero are not minima — they are saddles, where the surface curves up in
+some directions and down in others. The gradient at a saddle is exactly
+zero, so vanilla gradient descent slows to a crawl, but the loss is not
+actually minimised. Momentum helps escape saddles by carrying velocity
+through the flat region; stochastic noise helps too. Try the **saddle**
+preset above, starting from near the $y$-axis, to see the slowdown.
+
+**Plateaus.** Regions of the loss surface where the gradient is consistently
+small but non-zero. Gradient descent makes very slow progress through them.
+Adam-style adaptive methods handle plateaus better than vanilla GD because
+they boost the effective rate when gradients are persistently small.
+
+**Local minima.** For non-convex losses, gradient descent converges to
+whatever local minimum is closest to where it started. Try the
+**Himmelblau** preset above with various starting positions to see this in
+action. The good news for deep learning: in very high dimensions, the loss
+surface has so many local minima that most of them have similar values, and
+the catastrophically bad ones are exponentially rare. Local-minima panic
+was a 20th-century concern.
+
+**Sharp vs flat minima.** When gradient descent lands in a narrow, deep
+crevice in the loss surface, the resulting model often generalises poorly
+compared to one that landed in a wide, shallow basin at similar loss. Some
+optimisers (Sharpness-Aware Minimisation, SAM) explicitly seek flat
+minima. This is an active research area.
+
+## 9. Complexity
+
+**Per-step cost.** One gradient evaluation. For an ML loss with $n$
+examples and $p$ parameters, full-batch gradient descent costs $O(np)$ per
+step — every example touches every parameter. Mini-batch SGD with batch
+size $B$ costs $O(Bp)$ per step, which is much less when $B \ll n$.
+
+**Steps to converge.** This depends on:
+
+- The conditioning of the problem (how elongated the loss surface is).
+- The learning rate.
+- Whether you use momentum or an adaptive method.
+
+For well-conditioned convex problems, gradient descent converges in
+roughly $O(\log(1/\varepsilon))$ steps to error $\varepsilon$. For
+ill-conditioned ones it can be much slower — the number of steps scales
+with the *condition number* of the problem, which can be enormous.
+Momentum reduces this to scaling with the square root of the condition
+number, which is the main reason it matters.
+
+## 10. Implementing it yourself
+
+Vanilla gradient descent on the **valley** loss we visualised in §3, in
+NumPy. Try changing the learning rate or starting point and rerun.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def loss(theta):
+    x, y = theta
+    return 0.25 * x**2 + 4 * y**2
+
+def grad(theta):
+    x, y = theta
+    return np.array([0.5 * x, 8 * y])
+
+# Initialise
+theta = np.array([3.5, 1.1])
+lr = 0.05
+history = [theta.copy()]
+
+# Iterate
+for step in range(60):
+    g = grad(theta)
+    theta = theta - lr * g
+    history.append(theta.copy())
+
+    if np.linalg.norm(g) < 1e-4:
+        print(f"Converged at step {step + 1}")
+        break
+
+print(f"Final theta = {theta}")
+print(f"Final loss  = {loss(theta):.6f}")
+print(f"Steps taken = {len(history) - 1}")
+`}
+/>
+
+The pattern is the same every time: evaluate the gradient, update the
+parameters by $-\alpha \nabla L$, check for convergence, repeat. The
+sophisticated optimisers in the previous sections all share this skeleton
+— they differ only in how they compute the step.
+
+## 11. Problems
+
+<details>
+<summary>**Problem 1** (conceptual). Why does gradient descent slow down as
+it approaches a minimum?</summary>
+
+Because the gradient *is* the slope. Near a minimum the surface is nearly
+flat, so the slope is small. The update step is $\alpha$ times the
+gradient, so a small gradient produces a small step. This is a feature,
+not a bug: the algorithm automatically takes large steps when it is far
+from the goal and small steps when it is close, all without anyone having
+to tell it explicitly.
+
+A subtle consequence: gradient descent will never reach the minimum in
+finite time on a smooth convex loss. It approaches asymptotically. In
+practice we stop when the gradient norm falls below some tolerance
+$\varepsilon$, which gets us close enough.
+
+</details>
+
+<details>
+<summary>**Problem 2.** Implement vanilla gradient descent for the 1D
+function $f(x) = (x - 3)^2 + 5$.</summary>
+
+The derivative is $f'(x) = 2(x - 3)$. The minimum is at $x = 3$ with
+$f(3) = 5$.
+
+<PyodideEditor
+  initialCode={`# Implement gradient descent on f(x) = (x - 3)^2 + 5
+# Start at x = 0, use lr = 0.1, run 30 steps.
+
+def f(x):
+    return (x - 3)**2 + 5
+
+def df(x):
+    return 2 * (x - 3)
+
+# Your code below
+x = 0.0
+lr = 0.1
+
+for step in range(30):
+    # 1. Compute gradient
+    # 2. Update x
+    # 3. Print step, x, f(x) every 5 steps
+    pass
+`}
+/>
+
+**Solution:**
+
+<PyodideEditor
+  initialCode={`def f(x):
+    return (x - 3)**2 + 5
+
+def df(x):
+    return 2 * (x - 3)
+
+x = 0.0
+lr = 0.1
+
+for step in range(30):
+    g = df(x)
+    x = x - lr * g
+    if step % 5 == 0:
+        print(f"step {step:2d}: x = {x:.4f}, f(x) = {f(x):.4f}")
+
+print(f"\\nFinal x = {x:.6f}")
+print(f"True min at x = 3.0")
+`}
+/>
+
+The algorithm converges geometrically — each step closes the gap to the
+minimum by a constant factor of $(1 - 2\alpha)$.
+
+</details>
+
+<details>
+<summary>**Problem 3.** Generalise to 2D. Implement gradient descent on
+$f(x, y) = x^2 + 4y^2$ using NumPy vectors.</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def f(theta):
+    x, y = theta
+    return x**2 + 4 * y**2
+
+def grad(theta):
+    x, y = theta
+    return np.array([2 * x, 8 * y])
+
+# Start at theta = (4, 1), lr = 0.1, 40 steps.
+# Print every 5 steps.
+
+# Your code:
+`}
+/>
+
+**Solution:**
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def f(theta):
+    x, y = theta
+    return x**2 + 4 * y**2
+
+def grad(theta):
+    x, y = theta
+    return np.array([2 * x, 8 * y])
+
+theta = np.array([4.0, 1.0])
+lr = 0.1
+
+for step in range(40):
+    g = grad(theta)
+    theta = theta - lr * g
+    if step % 5 == 0:
+        print(f"step {step:2d}: theta = {theta}, loss = {f(theta):.4f}")
+
+print(f"\\nFinal theta = {theta}")
+`}
+/>
+
+Notice the trajectory in $y$ converges almost immediately (gradient
+magnitude in $y$ is 8 times that in $x$), while $x$ takes much longer.
+This is the ill-conditioning we discussed in §6 — and it is exactly what
+momentum is designed to fix.
+
+</details>
+
+<details>
+<summary>**Problem 4.** Add momentum. Modify the optimiser from Problem 3
+to use heavy-ball momentum with $\beta = 0.9$. Compare convergence speed.</summary>
+
+The momentum update is:
+
+$$v \leftarrow \beta v + g, \qquad \theta \leftarrow \theta - \alpha v$$
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def f(theta):
+    x, y = theta
+    return x**2 + 4 * y**2
+
+def grad(theta):
+    x, y = theta
+    return np.array([2 * x, 8 * y])
+
+theta = np.array([4.0, 1.0])
+lr = 0.1
+beta = 0.9
+v = np.zeros(2)
+
+# Your code: implement the momentum update for 40 steps.
+`}
+/>
+
+**Solution:**
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def f(theta):
+    x, y = theta
+    return x**2 + 4 * y**2
+
+def grad(theta):
+    x, y = theta
+    return np.array([2 * x, 8 * y])
+
+# With momentum
+theta = np.array([4.0, 1.0])
+lr = 0.05      # momentum amplifies steps; lower the LR
+beta = 0.9
+v = np.zeros(2)
+
+for step in range(40):
+    g = grad(theta)
+    v = beta * v + g
+    theta = theta - lr * v
+    if step % 5 == 0:
+        print(f"step {step:2d}: loss = {f(theta):.6f}")
+
+print(f"\\nFinal loss = {f(theta):.6f}")
+`}
+/>
+
+Compare the loss trajectory to Problem 3. Momentum reaches a similar loss
+in many fewer steps — at the cost of a small overshoot near the start, as
+the accumulated velocity carries past the minimum before decaying.
+
+</details>
+
+<details>
+<summary>**Problem 5** (putting it together). Use gradient descent to fit
+linear regression *from scratch* — no closed form, just GD on the MSE
+loss.</summary>
+
+Generate synthetic data with a known true relationship, then recover the
+coefficients with gradient descent. The loss is
+$L(\beta) = \frac{1}{n}\sum_i (x_i^\top \beta - y_i)^2$, with gradient
+$\nabla L(\beta) = \frac{2}{n} X^\top (X\beta - y)$.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+# Generate synthetic data
+np.random.seed(42)
+n = 200
+X = np.random.randn(n, 3)
+true_beta = np.array([1.5, -2.0, 0.7])
+y = X @ true_beta + 0.1 * np.random.randn(n)
+
+# Fit with gradient descent
+beta = np.zeros(3)
+lr = 0.05
+
+# Your code: 200 GD steps on MSE loss.
+# Print the loss every 20 steps.
+# At the end, print the recovered beta and compare to true_beta.
+`}
+/>
+
+**Solution:**
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+np.random.seed(42)
+n = 200
+X = np.random.randn(n, 3)
+true_beta = np.array([1.5, -2.0, 0.7])
+y = X @ true_beta + 0.1 * np.random.randn(n)
+
+def loss(beta):
+    residual = X @ beta - y
+    return np.mean(residual ** 2)
+
+def grad(beta):
+    residual = X @ beta - y
+    return (2 / n) * X.T @ residual
+
+beta = np.zeros(3)
+lr = 0.05
+
+for step in range(200):
+    g = grad(beta)
+    beta = beta - lr * g
+    if step % 20 == 0:
+        print(f"step {step:3d}: loss = {loss(beta):.6f}")
+
+print(f"\\nTrue beta:      {true_beta}")
+print(f"Recovered beta: {beta}")
+print(f"Final loss:     {loss(beta):.6f}")
+`}
+/>
+
+The recovered $\beta$ should be very close to the true values. The
+0.1-magnitude noise in $y$ sets a floor on how close we can get — beyond
+a certain point, "better fit" means fitting the noise, not the signal.
+You have just trained your first ML model from scratch, with no library
+help beyond NumPy. Every later chapter is a variant of this same shape:
+define a loss, compute its gradient, run gradient descent.
+
+</details>
+
+---
+
+*Next: Chapter 7 — Logistic regression.* The first time we use gradient
+descent to train a model that actually classifies things.
