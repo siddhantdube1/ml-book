@@ -84,7 +84,9 @@ export default function DecisionBoundary() {
     for (let i = 0; i < GX; i++) {
       for (let j = 0; j < GY; j++) {
         const xData = X_MIN + ((i + 0.5) / GX) * (X_MAX - X_MIN)
-        const yData = Y_MIN + ((j + 0.5) / GY) * (Y_MAX - Y_MIN)
+        // j = 0 is the top row of cells in SVG space; math y goes up,
+        // so the top SVG row corresponds to the *largest* yData.
+        const yData = Y_MAX - ((j + 0.5) / GY) * (Y_MAX - Y_MIN)
         const z = model.w[0] * xData + model.w[1] * yData + model.b
         const p = sigmoid(z)
         // Map probability to a colour: blue (class 0) ↔ paper ↔ orange (class 1).

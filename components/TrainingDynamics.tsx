@@ -98,7 +98,9 @@ export default function TrainingDynamics() {
     for (let i = 0; i < GX; i++) {
       for (let j = 0; j < GY; j++) {
         const xD = X_MIN + ((i + 0.5) / GX) * (X_MAX - X_MIN)
-        const yD = Y_MIN + ((j + 0.5) / GY) * (Y_MAX - Y_MIN)
+        // j = 0 is the top row of cells in SVG space; math y goes up,
+        // so the top SVG row corresponds to the *largest* yD.
+        const yD = Y_MAX - ((j + 0.5) / GY) * (Y_MAX - Y_MIN)
         const z = model.w[0] * xD + model.w[1] * yD + model.b
         const p = sigmoid(z)
         let fill: string
