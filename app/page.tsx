@@ -23,7 +23,7 @@ const parts: { title: string; chapters: Chapter[] }[] = [
       { num: 5, title: 'Linear regression', blurb: 'The mother of all models. Closed form, gradient descent, and what they reveal.' },
       { num: 6, title: 'Gradient descent', blurb: 'The optimisation engine behind nearly every modern model.', href: '/chapters/6-gradient-descent' },
       { num: 7, title: 'Logistic regression', blurb: 'From regression to classification with one elegant change of perspective.', href: '/chapters/7-logistic-regression' },
-      { num: 8, title: 'Multi-class classification', blurb: 'Softmax, one-vs-rest, and choosing between them.' },
+      { num: 8, title: 'Multi-class classification', blurb: 'Softmax, one-vs-rest, and choosing between them.', href: '/chapters/8-multi-class-classification' },
       { num: 9, title: 'Regularisation', blurb: 'The geometric story of L1 and L2 and why they tame overfitting.' },
     ],
   },

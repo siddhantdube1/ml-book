@@ -1,0 +1,909 @@
+import SoftmaxExplorer from '@/components/SoftmaxExplorer'
+import MultiClassBoundary from '@/components/MultiClassBoundary'
+import TrainingDynamics3Class from '@/components/TrainingDynamics3Class'
+import PyodideEditor from '@/components/PyodideEditor'
+
+export const metadata = {
+  title: 'Multi-class classification',
+  description:
+    'From two classes to many. Softmax, categorical cross-entropy, and the generalisation of logistic regression that quietly powers nearly every classifier with more than two labels — with three interactive visualisations, runnable Python, and five problems.',
+  openGraph: {
+    title: 'Multi-class classification',
+    description:
+      'An interactive walk-through of multinomial logistic regression — softmax, categorical cross-entropy, and gradient descent on a real three-class classifier.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 8 · Part II — Linear models
+</p>
+
+# Multi-class classification
+
+*From two classes to many. The function that lets a single linear model
+commit, jointly, to a distribution over an arbitrary number of categories.*
+
+Two classes is the simplest version of classification, but it isn't the
+common case. A digit recogniser has ten classes. A language identifier
+has thousands. A product taxonomy has tens of thousands. The real world
+rarely sorts cleanly into "yes" and "no" — most often we need to pick
+one option from a longer list.
+
+Nearly everything from Chapter 7 transfers. The same linear scoring.
+The same idea of squashing scores into probabilities. The same gradient
+descent. One function changes — sigmoid becomes *softmax* — and the
+whole machinery falls back into place. The gradient, once again, comes
+out beautifully clean.
+
+By the end of this chapter you will have trained a three-class
+classifier from scratch and seen exactly how multinomial logistic
+regression carves up the input space.
+
+## 1. The K-class problem
+
+Chapter 7 considered the case of two classes, labelled 0 and 1. That
+covers spam detection, fraud detection, and the cat-or-not problem. But
+binary problems are the easy case, not the common one. The MNIST
+handwritten-digit dataset has ten classes. The ImageNet image-
+classification benchmark has one thousand. Product catalogues at Amazon
+and AliExpress have tens of thousands. Language identification — the
+model that decides whether your text is English, French, Tagalog, or
+Yoruba — operates on roughly seven thousand languages.
+
+The setup generalises naturally. Now $y_i \in \{0, 1, 2, \ldots, K-1\}$,
+where $K$ is the number of classes. You still have $n$ training examples
+$(x_i, y_i)$ with feature vectors $x_i \in \mathbb{R}^p$. You still want
+a model that, given a new $x$, predicts which class it belongs to.
+
+What you'd like, ideally, is a probability for each class:
+$P(y = 0 \mid x), P(y = 1 \mid x), \ldots, P(y = K-1 \mid x)$. They
+should be non-negative, they should sum to one, and the largest one
+should pick out the right class on most of the training set. The
+remainder of this chapter is the construction of such a model.
+
+## 2. One-vs-rest: the obvious idea
+
+The obvious way to extend binary logistic regression to $K$ classes is
+to train $K$ binary classifiers and stitch their outputs together. This
+is called *one-vs-rest* (OvR), and it works like this. For each class
+$c$, build a binary classifier whose job is to answer "is this example
+in class $c$ or not?". You end up with $K$ separate logistic
+regressions, each with its own weight vector and bias, each producing a
+probability $\hat{p}_c(x) \in [0, 1]$. At prediction time, compute all
+$K$ probabilities and pick the class with the highest one:
+
+$$\hat{y}(x) = \arg\max_c \hat{p}_c(x).$$
+
+The plan has the right shape. It uses no new mathematics — just $K$
+copies of Chapter 7. It is also what would have been your first idea if
+no one had ever proposed an alternative. Plenty of production
+classifiers are still trained this way.
+
+But it leaks in two ways, and the leaks matter once you start caring
+about the *probability* itself, not just the predicted class.
+
+**The probabilities don't sum to one.** Each $\hat{p}_c$ is a binary
+probability — it says how likely the example is to be class $c$ versus
+*not class $c$*. There is no constraint that the $K$ numbers add up to
+anything in particular, and in general they won't. You might get
+$\hat{p}_0 = 0.7$, $\hat{p}_1 = 0.6$, $\hat{p}_2 = 0.4$. The model is
+claiming that class 0 is most likely, but also that two of the three
+classifiers think their own class is more likely than not. That can't
+all be true simultaneously, and a triple that fails to add up to one
+isn't really a distribution over classes.
+
+**The classifiers don't know about each other.** Each was trained in
+isolation, looking only at "my class versus the rest." The boundary
+between class 0 and class 1 was drawn by the class-0 classifier,
+treating class-1 points as just "not class 0." The boundary between
+class 1 and class 2 was drawn by the class-1 classifier, treating
+class-2 points as "not class 1." Those two views may disagree about
+who owns the territory between them. In some regions, both classifiers
+claim ownership; in other regions neither does, leaving a no-man's-land
+the argmax has to break a tie over.
+
+We want a model where the $K$ scores are jointly committed to producing
+a coherent distribution, where moving probability toward one class
+necessarily moves it away from another. The fix is one new function.
+
+## 3. The softmax function
+
+The function we want is the *softmax*. It takes any vector of $K$ real
+numbers and returns a probability distribution over $K$ classes:
+
+$$\text{softmax}(z)_c = \frac{e^{z_c}}{\sum_{j=1}^K e^{z_j}}.$$
+
+The inputs $z_1, z_2, \ldots, z_K$ are called *logits* — unconstrained
+real numbers, the multi-class analogue of Chapter 7's linear output
+$w^\top x + b$. The outputs are the predicted class probabilities. Three
+things are immediate from the formula:
+
+- **Outputs are positive.** Every $e^{z_j}$ is positive, so every output
+  is positive.
+- **Outputs sum to one.** The denominator is exactly the sum of all
+  numerators.
+- **The hottest logit wins.** The class with the largest $z_c$ gets the
+  largest probability — exponentially larger than the rest. Doubling a
+  single logit doesn't simply double the corresponding probability; it
+  can drive it almost all the way to 1 while the others collapse toward
+  0.
+
+The third property is softmax's signature. It is "soft" in the sense
+that the output is smooth — small changes in the input produce small
+changes in the output — but as one logit grows, it crowds the others
+out exponentially fast. In the limit of very large input differences,
+softmax converges to a hard *argmax*. Hence the name.
+
+The widget below makes this concrete. Drag any of the three bars to
+change its logit; watch how the probabilities redistribute among the
+three classes.
+
+<SoftmaxExplorer />
+
+A few things worth playing with:
+
+- Set all three logits to zero. The probabilities are exactly $1/3$
+  each — three equally likely classes when the model has no preference.
+  This is the uniform starting point.
+- Drive one logit up to $+4$ with the others at zero. That class takes
+  about 98% of the probability mass. The other two are crowded out
+  almost entirely.
+- Move all three logits up by the same amount — say from $(0, 0, 0)$ to
+  $(3, 3, 3)$. The output doesn't change. Softmax is invariant to
+  adding a constant to every input, because that constant cancels
+  between the numerator and denominator. Only *differences between
+  logits* matter.
+
+That last property is worth pausing on. Softmax cares about the *gaps*
+between scores, not their absolute values. When $K = 2$, this means the
+whole model collapses back to sigmoid: with logits $z_0, z_1$, the
+probability of class 1 is
+
+$$\frac{e^{z_1}}{e^{z_0} + e^{z_1}} = \frac{1}{1 + e^{-(z_1 - z_0)}} = \sigma(z_1 - z_0).$$
+
+Binary logistic regression is the special case of multinomial logistic
+regression with two classes — and the "$z$" that Chapter 7 used was
+implicitly the *gap* between the two classes' logits.
+
+## 4. The multinomial model
+
+The model itself is one small step from sigmoid + linear. For each
+class $c$ we have its own weight vector $w_c \in \mathbb{R}^p$ and bias
+$b_c \in \mathbb{R}$. The logit for class $c$ on input $x$ is
+
+$$z_c = w_c^\top x + b_c.$$
+
+Stack the $K$ weight vectors as rows of a matrix $W \in \mathbb{R}^{K
+\times p}$ and the biases as a vector $b \in \mathbb{R}^K$, and we get
+the compact form
+
+$$P(y = c \mid x) = \text{softmax}(Wx + b)_c.$$
+
+The model has $K \cdot p$ weights and $K$ biases — $K(p+1)$ parameters
+in all. For binary classification this is $2(p+1)$, twice what Chapter
+7 used. The factor of two is the redundancy we noted in §3: shifting
+every logit by a constant leaves softmax unchanged. Some formulations
+remove the redundancy by fixing $w_0 = 0, b_0 = 0$; gradient descent
+handles the symmetric form fine and we'll keep it.
+
+Prediction has the same shape as before. Compute all $K$ probabilities,
+pick the largest:
+
+$$\hat{y}(x) = \arg\max_c \text{softmax}(Wx + b)_c = \arg\max_c (w_c^\top x + b_c).$$
+
+The last equality holds because softmax is monotone in its inputs — the
+argmax of the probabilities equals the argmax of the raw logits. We
+never need to evaluate the softmax at prediction time. Just take the
+largest score.
+
+Where do the decision regions live? Consider two classes $c$ and $d$.
+The model picks $c$ over $d$ exactly when
+
+$$(w_c - w_d)^\top x + (b_c - b_d) > 0,$$
+
+a half-space — a linear inequality in $x$. The boundary between $c$ and
+$d$ is the hyperplane
+
+$$(w_c - w_d)^\top x + (b_c - b_d) = 0.$$
+
+Each class's full decision region is the intersection of $K - 1$ such
+half-spaces, one per competing class. Intersections of half-spaces are
+convex polytopes. So every class's region in input space is convex — a
+fact that has consequences we'll meet later.
+
+The next widget puts this in your hands. Three classes, two-dimensional
+data, three coloured prototype handles. Each handle's position is the
+weight vector $w_c$ that defines its class's region. Drag the handles
+around and watch the three decision regions reform.
+
+<MultiClassBoundary />
+
+A few things worth playing with:
+
+- With the prototypes near the data centres, the three regions form a
+  clean three-way partition meeting at a single *triple point*. This is
+  the multi-class analogue of Chapter 7's straight-line boundary.
+- Drag any one prototype far from its data, and watch its region get
+  squeezed. The other two classes annex the territory.
+- Click *Snap to class means* to set each prototype to the actual mean
+  of its class's points. On well-separated blobs, this is the optimal
+  placement; the regions become the Voronoi diagram of the class means.
+- Crank sharpness up. The colours saturate as the model commits, but
+  the boundaries themselves don't move — only the certainty in each
+  region does.
+
+## 5. Categorical cross-entropy
+
+We have the model. We need a loss. The story is exactly Chapter 7's,
+generalised by one index.
+
+In the binary case the loss was binary cross-entropy:
+
+$$L_{\mathrm{bin}}(w, b) = -\frac{1}{n} \sum_i \big[y_i \log p_i + (1 - y_i) \log(1 - p_i)\big].$$
+
+For each example only one of the two terms was nonzero — the one
+matching the label. We want the same shape for $K$ classes: a sum over
+training examples, contributing only the term that matches the true
+class.
+
+The natural generalisation is *categorical cross-entropy*:
+
+$$L(W, b) = -\frac{1}{n} \sum_{i=1}^n \log p_{i, y_i},$$
+
+where $p_{i, c} = \text{softmax}(Wx_i + b)_c$ is the predicted
+probability of class $c$ for example $i$, and $y_i$ is the true class.
+Each example contributes the negative log of *its own true class's
+probability*. If the model thinks the right class has probability 0.99
+— almost certain — the contribution is $-\log 0.99 \approx 0.01$,
+vanishingly small. If the model thinks the right class has probability
+0.01 — confidently wrong — the contribution is $-\log 0.01 \approx 4.6$,
+large.
+
+Two equivalent forms are worth knowing. If we one-hot encode the label
+so $\mathbf{1}_{y_i}$ is the indicator vector with a 1 in position
+$y_i$ and zeros elsewhere, the loss can be written
+
+$$L(W, b) = -\frac{1}{n} \sum_i \sum_c \mathbf{1}_{y_i = c} \log p_{i, c},$$
+
+a double sum over examples and classes that only counts the matching
+term. Or, expanding softmax explicitly:
+
+$$L(W, b) = -\frac{1}{n} \sum_i \Big[(Wx_i + b)_{y_i} - \log \textstyle\sum_j e^{(Wx_i + b)_j}\Big].$$
+
+That second term, $\log \sum_j e^{z_j}$, is called the *log-sum-exp* of
+the logits. It is the smooth approximation to $\max_j z_j$, and it
+shows up everywhere in machine learning where you need a differentiable
+stand-in for a hard maximum.
+
+**Where does this come from?** As in Chapter 7, the formula is not
+pulled from a hat. It is the maximum-likelihood estimator for a
+categorical (also called *multinoulli*) random variable. If we model
+the label $y_i$ as a draw from $\text{Categorical}(p_{i,0}, \ldots,
+p_{i, K-1})$, the likelihood of the training labels is $\prod_i p_{i,
+y_i}$. Take the log, the negative, divide by $n$, and you have
+categorical cross-entropy. Minimising it is equivalent to maximising
+the likelihood of the data under the model.
+
+One useful baseline: a model that knows nothing — that predicts
+$p_{i, c} = 1/K$ for every example and every class — gets a loss of
+exactly $\log K$. For $K = 3$, $\log 3 \approx 1.099$. Any worse than
+that and you are doing worse than random guessing. We'll see this as
+the dashed-line baseline on the next loss curve.
+
+## 6. Training: the gradient is again clean
+
+We minimise $L$ with respect to $W$ and $b$ by gradient descent. The
+gradient is the cleanest formula in the chapter, and once again it is
+Chapter 7's formula with one extra index.
+
+For each class $c$,
+
+$$\nabla_{w_c} L = \frac{1}{n} \sum_{i=1}^n (p_{i, c} - \mathbf{1}_{y_i = c}) \, x_i, \qquad \frac{\partial L}{\partial b_c} = \frac{1}{n} \sum_{i=1}^n (p_{i, c} - \mathbf{1}_{y_i = c}).$$
+
+The factor $p_{i, c} - \mathbf{1}_{y_i = c}$ is *the prediction error
+for class $c$* — how much probability the model assigned to class $c$
+minus how much it should have (1 if $c$ is the true class, 0
+otherwise). Times the input feature vector, averaged across examples.
+Same shape as binary logistic regression's gradient, just one set of
+weights per class.
+
+This is not coincidence. The pairing of softmax and categorical
+cross-entropy was designed — or, more honestly, *discovered* — to
+produce exactly this gradient. The chain-rule derivatives of softmax
+and the chain-rule derivatives of $-\log$ cancel each other almost
+completely, leaving only "(prediction $-$ target) times input." That
+cancellation is the entire reason softmax is the right partner for
+cross-entropy. Any other squashing function would have left a tangled
+derivative behind.
+
+The training algorithm is now Chapter 6's gradient descent. Initialise
+$W$ and $b$ to zero (a valid starting point for softmax — no symmetry
+breaking is needed, unlike neural networks), then repeat:
+
+```
+For each class c:
+    g_wc ← (1/n) Σ (p_{i,c} − 1[y_i = c]) x_i
+    g_bc ← (1/n) Σ (p_{i,c} − 1[y_i = c])
+    w_c  ← w_c − α · g_wc
+    b_c  ← b_c − α · g_bc
+```
+
+until the loss stops decreasing. Same algorithm. Same convergence
+guarantees. Same code structure as Chapter 7 — just one extra loop
+over classes.
+
+The widget below shows it running. On the left, the three decision
+regions form in data space as the dashed pairwise boundaries slide
+into place. On the right, categorical cross-entropy descends from
+$\log 3$ — the baseline a uniform random guesser achieves — toward zero.
+
+<TrainingDynamics3Class />
+
+A few things to watch:
+
+- On **blobs**, the loss drops sharply and flattens within a dozen or
+  so steps. The three regions snap into roughly the Voronoi diagram of
+  the class means.
+- On **overlap**, the loss can't reach zero. The classes share
+  territory, so even the best linear classifier mislabels the points in
+  the overlap region. Gradient descent converges to the Bayes-optimal
+  linear classifier, which still has nonzero loss.
+- Crank the learning rate up. With $\alpha$ too large, the loss
+  oscillates — gradient descent overshoots the basin. With $\alpha$ too
+  small, convergence is slow but steady. The trade-off is exactly the
+  one we met in Chapter 6 §4.
+
+## 7. Decision regions as a partition
+
+The geometric picture from §4 was hinted at by the widget. Let's make
+it explicit. With $K$ classes in 2D, softmax produces a partition of
+the plane into $K$ convex polygonal regions. The boundary between any
+two regions is a straight line — the pairwise perpendicular bisector,
+once the bias terms are accounted for. Three or more boundaries meet
+at a *triple point* (or higher-order junction); pairwise boundaries
+can never cross each other in a way that creates orphaned regions or
+contested cells.
+
+Contrast this with one-vs-rest. Each binary classifier carves the
+plane into "my class" versus "everything else," with no awareness of
+the others' decisions. When you stack $K$ of them and assign by
+argmax, the partition is no longer guaranteed to be a clean
+Voronoi-like structure. You can get:
+
+- **Ambiguous regions** where two classifiers both predict their class
+  with high probability, and the argmax has to break the tie.
+- **Orphan regions** where no classifier confidently claims ownership,
+  and the predicted class is barely above 0.5 for any of them.
+- **Mismatched boundaries** where the OvR boundary between two
+  adjacent classes is not the line softmax would have drawn.
+
+On easy problems — well-separated classes, plenty of data — OvR and
+softmax often reach similar accuracies. The differences live in the
+marginal regions: places where two or more classes have comparable
+scores. There, softmax's joint training produces a calibrated
+distribution over the classes; OvR's independent classifiers do not.
+
+A practical question worth answering: when is OvR still the right
+tool? When the classes really are *unrelated* — say, training one
+classifier to detect dogs, another to detect cars, another to detect
+handwritten letters, with the possibility that an image contains any
+combination — there is no joint distribution to model, and you'd
+actually want independent classifiers. OvR is the natural setup for
+*multi-label* problems, where each example can belong to several
+categories at once. For exclusive multi-class problems, where an
+example belongs to exactly one of $K$ classes, softmax is the
+principled choice.
+
+## 8. Practical concerns
+
+Multi-class probabilities expose all the same opportunities and
+pitfalls as binary ones, plus a few that are specific to $K > 2$.
+
+**Calibration.** A well-calibrated softmax classifier predicts
+probability 0.7 on examples that turn out to be the right class about
+70% of the time, and similarly for 0.4, 0.9, and so on. The notion
+generalises directly from Chapter 7. In practice, multi-class softmax
+models tend to be miscalibrated — they are systematically
+*overconfident*, especially when $K$ is large. A model with 1000
+classes that emits a top-class probability of 0.95 may actually be
+right only 85% of the time at that confidence level. We'll meet
+techniques for diagnosing and correcting this (reliability diagrams,
+temperature scaling) in Chapter 10.
+
+**Top-$K$ accuracy.** When $K$ is large, demanding that the model put
+the true class *first* (top-1 accuracy) is harsh. A reasonable
+softening is *top-$K$ accuracy*: the model is "right" if the true
+class appears in its top-$K$ predictions. ImageNet has standardised
+top-5 accuracy as a headline metric — a model that ranks the correct
+class among its top five guesses is doing useful work even if it
+doesn't pick it first.
+
+**Numerical stability.** The naïve softmax — computing $e^{z_c}$
+directly — overflows when any $z_c$ is even moderately large. With
+$z = 800$, the floating-point representation of $e^{800}$ is infinity,
+and the resulting "probability" is NaN. The fix is the *max-shift*
+trick: subtract $\max_j z_j$ from every $z_c$ before exponentiating.
+
+$$\text{softmax}(z)_c = \frac{e^{z_c - m}}{\sum_j e^{z_j - m}}, \quad m = \max_j z_j.$$
+
+This is algebraically identical (the $e^{-m}$ factor cancels between
+numerator and denominator) but every exponentiated value is now in
+$(0, 1]$. We'll implement this in §10 and again in Problem 2.
+
+**The cost of large $K$.** Computing softmax over $K$ classes is
+$O(K)$ per example. For $K = 10$ or $K = 100$ this is negligible. For
+$K = 10{,}000$ — typical for vocabulary-sized softmax in language
+models — it dominates the per-step cost, and several approximations
+have been developed. *Hierarchical softmax* groups classes into a tree
+so that each prediction touches only $O(\log K)$ classes; *sampled
+softmax* approximates the gradient by drawing a small random subset of
+negative classes per example. Chapter 22 will return to these when we
+look at training large language models in earnest.
+
+## 9. Complexity
+
+**Parameters.** $K(p + 1)$ — $K$ weight vectors of size $p$ plus $K$
+biases. For $K = 10, p = 784$ (MNIST in pixel space), that's 7,850
+parameters. For $K = 1000, p = 2048$ (a typical image-classifier
+feature dimension), it's about two million.
+
+**Per-step cost.** Each gradient step touches every training example
+once. For each example, computing all $K$ logits is $O(Kp)$ (one
+matrix-vector product), the softmax is $O(K)$, and the gradient update
+is $O(Kp)$. Total per step on $n$ examples is $O(nKp)$.
+
+**Convergence.** Categorical cross-entropy with softmax is convex in
+$W$ and $b$ — every local minimum is the global minimum. Convexity
+carries over from binary cross-entropy because the categorical loss is
+a sum of log-sum-exp terms minus a linear term, and log-sum-exp is a
+classical convex function. Gradient descent with a reasonable learning
+rate is guaranteed to converge. As with Chapter 7, this is what makes
+multinomial logistic regression a reliable workhorse — train it once,
+get the global optimum, no ambiguity about whether you have the best
+model the architecture allows.
+
+## 10. Implementing it yourself
+
+The full classifier — softmax, categorical cross-entropy, gradient
+descent — in under thirty lines of NumPy. Two-dimensional inputs,
+three classes, the same blob layout we visualised above.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+# Three-class dataset: three Gaussian blobs in 2D
+rng = np.random.default_rng(42)
+n_per = 100
+n = 3 * n_per
+centres = np.array([[-1.5, -0.8], [1.5, -0.8], [0, 1.4]])
+X = np.vstack([rng.normal(c, 0.55, (n_per, 2)) for c in centres])
+y = np.array([0] * n_per + [1] * n_per + [2] * n_per)
+
+# Numerically stable softmax (max-shift trick)
+def softmax(Z):
+    Z = Z - Z.max(axis=1, keepdims=True)
+    E = np.exp(Z)
+    return E / E.sum(axis=1, keepdims=True)
+
+def loss(W, b):
+    P = softmax(X @ W.T + b)
+    return -np.mean(np.log(P[np.arange(n), y] + 1e-12))
+
+def accuracy(W, b):
+    return np.mean((X @ W.T + b).argmax(axis=1) == y)
+
+K = 3
+W = np.zeros((K, 2))
+b = np.zeros(K)
+lr = 0.5
+
+# One-hot encode labels for the gradient
+Y = np.zeros((n, K))
+Y[np.arange(n), y] = 1
+
+for step in range(100):
+    P = softmax(X @ W.T + b)
+    grad_W = (P - Y).T @ X / n
+    grad_b = (P - Y).mean(axis=0)
+    W -= lr * grad_W
+    b -= lr * grad_b
+    if step % 10 == 0:
+        print(f"step {step:3d}: loss = {loss(W, b):.4f}, accuracy = {accuracy(W, b):.3f}")
+
+print(f"\\nFinal W =\\n{W}")
+print(f"Final b = {b}")
+print(f"Final accuracy = {accuracy(W, b):.3f}")
+`}
+/>
+
+That is the whole classifier. About twenty lines of meaningful code,
+on top of the gradient descent skeleton from Chapter 6. The matrix
+form of the gradient — `(P - Y).T @ X / n` — is the entire derivative
+of categorical cross-entropy with respect to $W$, written without
+loops. Every piece you just saw generalises to deeper models with very
+few changes.
+
+## 11. Problems
+
+### Problem 1 — Why don't one-vs-rest probabilities sum to one?
+
+A conceptual question. Suppose you train three independent binary
+classifiers $\hat{p}_0, \hat{p}_1, \hat{p}_2$ for a three-class problem
+and get $\hat{p}_0(x) = 0.7$, $\hat{p}_1(x) = 0.6$, $\hat{p}_2(x) =
+0.3$ on some test point. Explain why these three numbers are not a
+valid probability distribution over the three classes, and explain why
+softmax always *is*.
+
+<details>
+  <summary>Show solution</summary>
+
+Each $\hat{p}_c(x)$ is the answer to a different question: "is this
+point in class $c$, or in 'everything else'?" The three classifiers
+were trained against different views of the data, where the negative
+class for one is a superset of the positive class for another. There
+is no probabilistic relationship forcing the three numbers to add up to
+anything in particular — they could each be 0.9 or each be 0.1.
+
+Softmax is different by construction. Given any three logits, the
+formula divides each $e^{z_c}$ by the sum $\sum_j e^{z_j}$. The output
+for class $c$ is the share of total "exp-mass" that class $c$ claims.
+By construction these shares are non-negative and sum to one. The
+constraint comes from the formula itself, not from how we trained the
+model.
+
+This matters whenever you care about more than the predicted class. In
+a fraud system you might block above 0.95 and review between 0.5 and
+0.95. With OvR you can't honestly say "the probability of class $c$ is
+0.7" — you can only say "the binary classifier for class $c$ output
+0.7." With softmax you can.
+
+</details>
+
+### Problem 2 — Implement a numerically stable softmax
+
+The naïve formula $e^{z_c} / \sum_j e^{z_j}$ overflows when any logit
+is even moderately large. Implement the max-shift version that stays
+in range for any finite inputs.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def softmax(Z):
+    # Z is shape (n, K) — n examples, K logits each.
+    # Your code: subtract the row-wise max before exponentiating.
+    pass
+
+# Should print probabilities summing to 1 in every row, even for big inputs.
+Z = np.array([[0.0, 0.0, 0.0],
+              [1.0, 2.0, 3.0],
+              [800.0, 801.0, 802.0]])
+P = softmax(Z)
+print(P)
+print("row sums:", P.sum(axis=1))
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def softmax(Z):
+    Z = Z - Z.max(axis=1, keepdims=True)
+    E = np.exp(Z)
+    return E / E.sum(axis=1, keepdims=True)
+
+Z = np.array([[0.0, 0.0, 0.0],
+              [1.0, 2.0, 3.0],
+              [800.0, 801.0, 802.0]])
+P = softmax(Z)
+print(P)
+print("row sums:", P.sum(axis=1))
+`}
+/>
+
+Subtracting the row max means every exponentiated value is in
+$(0, 1]$, so the numerator stays representable. The denominator is at
+least 1 (the max-row contributes $e^0 = 1$) and at most $K$. The
+division gives the same answer as the naïve formula but never
+overflows.
+
+Notice that the third row's output is identical to the first row's,
+even though the inputs differ by a factor of 800. Softmax cares only
+about *differences* between logits, never their absolute values —
+shifting them all by the same amount changes nothing.
+
+</details>
+
+### Problem 3 — Implement categorical cross-entropy
+
+Given a matrix of predicted probabilities $P$ (shape $n \times K$) and
+integer labels $y$ (shape $n$), compute the average categorical cross-
+entropy. Don't forget the small epsilon to avoid $\log 0$.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def categorical_cross_entropy(P, y):
+    # P shape (n, K) — predicted probabilities (rows sum to 1)
+    # y shape (n,)  — integer labels in {0, 1, ..., K-1}
+    # Your code: return the average -log p[i, y[i]]
+    pass
+
+n = 4
+P_perfect = np.array([[0.95, 0.025, 0.025],
+                      [0.025, 0.95, 0.025],
+                      [0.025, 0.025, 0.95],
+                      [0.95, 0.025, 0.025]])
+P_uniform = np.full((n, 3), 1/3)
+P_wrong   = np.array([[0.025, 0.95, 0.025],
+                      [0.025, 0.025, 0.95],
+                      [0.95, 0.025, 0.025],
+                      [0.025, 0.95, 0.025]])
+y = np.array([0, 1, 2, 0])
+
+print(f"Perfect: loss = {categorical_cross_entropy(P_perfect, y):.4f}")
+print(f"Uniform: loss = {categorical_cross_entropy(P_uniform, y):.4f}")
+print(f"Wrong:   loss = {categorical_cross_entropy(P_wrong, y):.4f}")
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def categorical_cross_entropy(P, y):
+    eps = 1e-12
+    n = len(y)
+    return -np.mean(np.log(P[np.arange(n), y] + eps))
+
+n = 4
+P_perfect = np.array([[0.95, 0.025, 0.025],
+                      [0.025, 0.95, 0.025],
+                      [0.025, 0.025, 0.95],
+                      [0.95, 0.025, 0.025]])
+P_uniform = np.full((n, 3), 1/3)
+P_wrong   = np.array([[0.025, 0.95, 0.025],
+                      [0.025, 0.025, 0.95],
+                      [0.95, 0.025, 0.025],
+                      [0.025, 0.95, 0.025]])
+y = np.array([0, 1, 2, 0])
+
+print(f"Perfect: loss = {categorical_cross_entropy(P_perfect, y):.4f}")
+print(f"Uniform: loss = {categorical_cross_entropy(P_uniform, y):.4f}")
+print(f"Wrong:   loss = {categorical_cross_entropy(P_wrong, y):.4f}")
+`}
+/>
+
+The clean expression `P[np.arange(n), y]` is NumPy fancy indexing —
+for each row $i$ it picks out column $y[i]$. The perfect predictions
+get a loss near $-\log 0.95 \approx 0.05$. Uniform guessing gives
+exactly $\log 3 \approx 1.099$ — the random-guess baseline that the
+training widget's loss curve descends from. The confidently wrong
+predictions get a loss near $-\log 0.025 \approx 3.69$ each, dominated
+by the log of the tiny true-class probability.
+
+</details>
+
+### Problem 4 — Train multinomial logistic regression end to end
+
+Combine the pieces from Problems 2 and 3 into a working training loop.
+Train for 200 steps with learning rate 0.5 on the three-blob dataset
+and report the final accuracy.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+n_per = 100
+centres = np.array([[-1.5, -0.8], [1.5, -0.8], [0, 1.4]])
+X = np.vstack([rng.normal(c, 0.55, (n_per, 2)) for c in centres])
+y = np.array([0] * n_per + [1] * n_per + [2] * n_per)
+n, K = len(y), 3
+
+def softmax(Z):
+    Z = Z - Z.max(axis=1, keepdims=True)
+    E = np.exp(Z)
+    return E / E.sum(axis=1, keepdims=True)
+
+# Your code:
+#   1. Initialise W = zeros((K, 2)), b = zeros(K)
+#   2. One-hot encode y into Y of shape (n, K)
+#   3. Run 200 gradient descent steps with lr = 0.5:
+#        - P = softmax(X @ W.T + b)
+#        - grad_W = (P - Y).T @ X / n
+#        - grad_b = (P - Y).mean(axis=0)
+#        - update W and b
+#   4. Print loss + accuracy every 20 steps
+#   5. Report final accuracy
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+n_per = 100
+centres = np.array([[-1.5, -0.8], [1.5, -0.8], [0, 1.4]])
+X = np.vstack([rng.normal(c, 0.55, (n_per, 2)) for c in centres])
+y = np.array([0] * n_per + [1] * n_per + [2] * n_per)
+n, K = len(y), 3
+
+def softmax(Z):
+    Z = Z - Z.max(axis=1, keepdims=True)
+    E = np.exp(Z)
+    return E / E.sum(axis=1, keepdims=True)
+
+W = np.zeros((K, 2))
+b = np.zeros(K)
+lr = 0.5
+
+Y = np.zeros((n, K))
+Y[np.arange(n), y] = 1
+
+for step in range(200):
+    P = softmax(X @ W.T + b)
+    grad_W = (P - Y).T @ X / n
+    grad_b = (P - Y).mean(axis=0)
+    W -= lr * grad_W
+    b -= lr * grad_b
+    if step % 20 == 0:
+        loss = -np.mean(np.log(P[np.arange(n), y] + 1e-12))
+        acc = np.mean((X @ W.T + b).argmax(axis=1) == y)
+        print(f"step {step:3d}: loss = {loss:.4f}, accuracy = {acc:.3f}")
+
+P_final = softmax(X @ W.T + b)
+loss = -np.mean(np.log(P_final[np.arange(n), y] + 1e-12))
+acc = np.mean((X @ W.T + b).argmax(axis=1) == y)
+print(f"\\nFinal: loss = {loss:.4f}, accuracy = {acc:.3f}")
+`}
+/>
+
+The loss starts at $\log 3 \approx 1.099$ and falls to roughly 0.05
+over 200 steps, with accuracy climbing past 98%. The three Gaussian
+blobs are well separated, so the linear classifier finds a clean
+three-way partition. The matrix form of the gradient — `(P - Y).T @ X
+/ n` — is the entire derivative of categorical cross-entropy with
+respect to $W$, written without loops. The factor `P - Y` is
+"predictions minus one-hot labels," element by element.
+
+</details>
+
+### Problem 5 — One-vs-rest versus softmax
+
+Train both an OvR classifier (three independent binary logistic
+regressions) and a softmax classifier on the same three-blob dataset.
+Compare their accuracies, look at the OvR "probabilities" to see that
+they don't sum to one, and search a grid of test points for at least
+one location where the two classifiers disagree.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(1)
+n_per = 100
+centres = np.array([[-1.5, -0.8], [1.5, -0.8], [0, 1.4]])
+X = np.vstack([rng.normal(c, 0.55, (n_per, 2)) for c in centres])
+y = np.array([0] * n_per + [1] * n_per + [2] * n_per)
+n, K = len(y), 3
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+def softmax(Z):
+    Z = Z - Z.max(axis=1, keepdims=True)
+    E = np.exp(Z)
+    return E / E.sum(axis=1, keepdims=True)
+
+# Your code:
+#   Part A — One-vs-rest. For each c in {0, 1, 2}, train a binary logistic
+#            regression with target (y == c). Stack their predictions and
+#            pick the argmax. Report accuracy. Print the per-class
+#            probabilities for the first 3 points to see they don't sum to 1.
+#   Part B — Softmax. Train a single multinomial logistic regression as in
+#            Problem 4. Report accuracy.
+#   Part C — On an 80×60 grid covering the data, find at least one point
+#            where the two classifiers predict different classes.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(1)
+n_per = 100
+centres = np.array([[-1.5, -0.8], [1.5, -0.8], [0, 1.4]])
+X = np.vstack([rng.normal(c, 0.55, (n_per, 2)) for c in centres])
+y = np.array([0] * n_per + [1] * n_per + [2] * n_per)
+n, K = len(y), 3
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+def softmax(Z):
+    Z = Z - Z.max(axis=1, keepdims=True)
+    E = np.exp(Z)
+    return E / E.sum(axis=1, keepdims=True)
+
+# Part A — OvR: three independent binary logistic regressions
+W_ovr = np.zeros((K, 2))
+b_ovr = np.zeros(K)
+for c in range(K):
+    y_bin = (y == c).astype(float)
+    w, bias = np.zeros(2), 0.0
+    for _ in range(500):
+        p = sigmoid(X @ w + bias)
+        w    -= 0.5 * X.T @ (p - y_bin) / n
+        bias -= 0.5 * np.mean(p - y_bin)
+    W_ovr[c] = w
+    b_ovr[c] = bias
+
+P_ovr = sigmoid(X @ W_ovr.T + b_ovr)
+pred_ovr = P_ovr.argmax(axis=1)
+acc_ovr = np.mean(pred_ovr == y)
+print(f"OvR:     accuracy = {acc_ovr:.3f}")
+print(f"OvR per-class probabilities for first 3 points (each row should sum to 1, but doesn't):")
+print(np.round(P_ovr[:3], 3))
+print(f"row sums: {P_ovr[:3].sum(axis=1).round(3)}")
+
+# Part B — Softmax
+W_sm = np.zeros((K, 2))
+b_sm = np.zeros(K)
+Y = np.zeros((n, K))
+Y[np.arange(n), y] = 1
+for _ in range(500):
+    P = softmax(X @ W_sm.T + b_sm)
+    W_sm -= 0.5 * (P - Y).T @ X / n
+    b_sm -= 0.5 * (P - Y).mean(axis=0)
+
+pred_sm = (X @ W_sm.T + b_sm).argmax(axis=1)
+acc_sm = np.mean(pred_sm == y)
+print(f"\\nSoftmax: accuracy = {acc_sm:.3f}")
+print(f"Softmax probabilities for first 3 points (each row sums to 1):")
+P_first = softmax(X[:3] @ W_sm.T + b_sm)
+print(np.round(P_first, 3))
+print(f"row sums: {P_first.sum(axis=1).round(3)}")
+
+# Part C — search a grid for disagreements
+gx, gy = np.meshgrid(np.linspace(-3, 3, 80), np.linspace(-2.5, 2.5, 60))
+G = np.column_stack([gx.ravel(), gy.ravel()])
+pred_ovr_G = sigmoid(G @ W_ovr.T + b_ovr).argmax(axis=1)
+pred_sm_G  = (G @ W_sm.T  + b_sm ).argmax(axis=1)
+diff = np.where(pred_ovr_G != pred_sm_G)[0]
+print(f"\\nDisagreements on grid: {len(diff)} / {len(G)} points")
+if len(diff) > 0:
+    idx = diff[0]
+    print(f"  Example at x = {G[idx].round(3)}:")
+    print(f"    OvR     predicts class {pred_ovr_G[idx]}")
+    print(f"    Softmax predicts class {pred_sm_G[idx]}")
+`}
+/>
+
+Both classifiers reach high training accuracy on this dataset —
+well-separated blobs are an easy problem. The differences are
+elsewhere. The OvR "probabilities" don't sum to one: each row of
+`P_ovr` is three independent answers to three different yes/no
+questions, with no normalisation forcing them to agree. The softmax
+probabilities always sum to one. And the two classifiers disagree on
+at least a handful of grid points — almost always near the triple
+point, where two or more classes have close scores. Softmax's joint
+training carves a clean partition there; OvR's three independent
+classifiers each made their own decision and the argmax inherits the
+disagreement.
+
+</details>
+
+---
+
+*Next: Chapter 9 — Regularisation.* The geometric story of L1 and L2,
+and why one of them produces sparse models.
