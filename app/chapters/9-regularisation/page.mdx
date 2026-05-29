@@ -1,0 +1,878 @@
+import PolynomialFit from '@/components/PolynomialFit'
+import ConstraintGeometry from '@/components/ConstraintGeometry'
+import RegularisationPath from '@/components/RegularisationPath'
+import PyodideEditor from '@/components/PyodideEditor'
+
+export const metadata = {
+  title: 'Regularisation',
+  description:
+    'How to keep a model from memorising its training data. L1 and L2, the geometric story of constraint regions, and the famous diamond-versus-disc figure that explains why one of them produces sparse models — with three interactive visualisations, runnable Python, and five problems.',
+  openGraph: {
+    title: 'Regularisation',
+    description:
+      'An interactive walk-through of L1 and L2 regularisation — overfitting, the constraint-region picture, and the lasso path.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 9 · Part II — Linear models
+</p>
+
+# Regularisation
+
+*The standard tool for stopping a model from memorising its training
+data. A one-line change to gradient descent and the most beautiful
+figure in classical machine learning.*
+
+Picture a tailor measuring a single customer with infinite precision —
+accounting for every freckle, every asymmetry, every twitch of posture
+— and then producing a suit that fits this one person to the
+millimetre. Lovely. Then someone else tries the suit on. It is
+unwearable. The tailor has measured the wrong thing: the customer's
+*noise* instead of the customer's *shape*.
+
+Machine-learning models do exactly this when given too much
+flexibility relative to the amount of training data. The failure mode
+is called *overfitting*. The model passes through every training point
+— wiggling sharply between them to do so — and produces predictions on
+new data that have very little to do with the underlying signal. This
+chapter is about the standard tool for stopping it: *regularisation*.
+The idea is small and the implementation is a one-line change to
+gradient descent. The geometric story behind it — why one particular
+kind of penalty produces models in which most coefficients are exactly
+zero — is one of the most elegant pictures in classical machine
+learning.
+
+By the end of this chapter you will have built two flavours of
+regularised logistic regression by hand and seen the figure that
+explains why one of them is the textbook tool for automatic feature
+selection.
+
+## 1. Overfitting
+
+Consider the simplest possible setup: predicting one number from
+another. You have 25 noisy observations $(x_i, y_i)$ of an unknown
+smooth function. Your job is to recover the function from the
+observations. The standard tool is *polynomial regression* — fit
+$y \approx w_0 + w_1 x + w_2 x^2 + \cdots + w_d x^d$ for some chosen
+*degree* $d$, using least squares to find the coefficients.
+
+What degree should you pick? Three choices land on three different
+stories. Degree one — a straight line — is too rigid to capture any
+curvature; the fit *underfits*. Degree two or three — a parabola or
+cubic — captures the bulk of the shape and largely ignores the noise.
+Degree fifteen passes through nearly every training point exactly, but
+to do so it wiggles violently between them; on data the model was not
+shown, it predicts wild values.
+
+The widget below makes this concrete. The dashed line is the true
+function. The black dots are the noisy observations. The orange curve
+is the polynomial fit at the chosen degree and regularisation strength
+$\lambda$. For now leave $\lambda$ at its default and slide the degree
+up. Watch the fit go from underfit through reasonable through
+catastrophically overfit. Notice that the **train MSE** falls
+monotonically with degree — more flexibility, better training fit —
+while the **test MSE**, measured against the true function, gets
+dramatically worse beyond a sweet spot.
+
+<PolynomialFit />
+
+That gap between train and test loss is the practical signature of
+overfitting. The model is finding patterns in the noise rather than in
+the signal. With enough degrees, it can in principle pass through
+every training point — and once it does, the curve *between* points is
+anyone's guess.
+
+Now play with the second slider. $\lambda$ is the *regularisation
+strength*. At $\lambda \approx 0$ you have ordinary polynomial
+regression — the fit you were just playing with. Crank $\lambda$ up at
+degree fifteen and watch the fit gradually unwiggle, drifting back
+toward something close to the true curve. The wiggles vanish without
+having to throw any features away. That second knob is what the rest
+of this chapter is about.
+
+## 2. The naive fixes
+
+The wiggle-suppression we just performed by cranking $\lambda$ up
+could in principle have been done other ways. Each of the naive
+alternatives works partially; each has a clear weakness.
+
+**Use fewer features.** If the trouble is that degree fifteen has too
+much capacity, just don't use degree fifteen. Pick degree three and be
+done. On the toy problem this works because we can directly tune
+capacity by adjusting one number. In real problems with hundreds or
+thousands of features — words in a document, pixels in an image,
+demographic variables in a survey — picking the right subset is
+itself a hard combinatorial problem. There are $2^p$ possible feature
+subsets in $p$ features. You cannot enumerate them.
+
+**Stop training early.** Gradient descent starts at $w = 0$ and moves
+toward the unregularised optimum step by step. If you stop it before
+it gets there, the resulting model is "less overfit" than the
+converged one. This works, after a fashion — *early stopping* is
+widely used in practice, particularly for neural networks
+(Chapter 22). But the optimisation trajectory is a tangled object and
+"how many steps" is a hyperparameter with no clean statistical
+interpretation.
+
+**Get more data.** Overfitting is, fundamentally, a sample-size
+problem. With infinite training data, even very flexible models
+recover the true function. Collecting more data is the right answer
+when it is available. It rarely is.
+
+What we want is a knob that controls capacity *continuously* — not a
+discrete choice of features, not a stopping time. The knob should
+have a clear statistical interpretation and should be cheap to tune.
+Regularisation gives us exactly such a knob.
+
+## 3. The key idea: add a penalty
+
+Regularisation modifies the loss in one small way. To the data-fit
+term you already have, you add a *penalty* on the size of the weights:
+
+$$L_{\mathrm{reg}}(w) = L(w) + \lambda R(w).$$
+
+$L(w)$ is the original loss — squared error for regression,
+cross-entropy for classification, whatever the chapter at hand calls
+for. $R(w)$ is a *regularisation function* that grows with the
+magnitude of the weights — small for small $w$, large for large $w$.
+And $\lambda \geq 0$ is the *regularisation strength*, a hyperparameter.
+
+What does this do? The optimiser is now solving a balanced problem.
+It can pay the cost of large weights (high $R$, high penalty) and
+reduce data-fit loss, or accept somewhat worse data-fit (modest $L$
+reduction) and keep its weights small (low penalty). The trade-off is
+controlled by $\lambda$:
+
+- When $\lambda = 0$, the penalty doesn't matter; you get ordinary
+  unregularised fitting.
+- When $\lambda$ is very large, the penalty dominates; the optimiser
+  drives every weight toward zero, ignoring the data entirely.
+- In between, the optimiser finds a model that fits the data
+  reasonably while keeping its weights modest.
+
+The crucial bit is that "weights modest" is a constraint *the model
+imposes on itself*. The optimiser does not know which features matter
+and which don't — but if a feature is only marginally useful (small
+reduction in $L$ for using it), it isn't worth the penalty cost
+($\lambda$ times whatever weight is needed), and the optimiser pulls
+that feature's weight closer to zero. Strong features survive; weak
+ones fade. The model auto-prunes.
+
+The two natural choices of $R$ — and the only two we'll spend serious
+time on — are the *squared L2 norm* and the *L1 norm*. They are
+similar in setup, very different in consequence.
+
+## 4. L2 regularisation (ridge)
+
+The L2 penalty is the obvious choice. It penalises the sum of squared
+weights:
+
+$$R_{\mathrm{L2}}(w) = \sum_{j=1}^p w_j^2 = \|w\|_2^2.$$
+
+Combined with squared-error loss, this gives *ridge regression*:
+
+$$L_{\mathrm{ridge}}(w) = \frac{1}{2n} \|Xw - y\|^2 + \lambda \|w\|^2.$$
+
+Two small details. The factor of $\frac{1}{2}$ on the data term is a
+convention that cancels with the derivative; you can drop it and
+absorb the difference into $\lambda$. The *intercept* — the
+coefficient that always multiplies the constant feature 1 — is
+typically left out of the penalty. There is no reason to bias the
+model's output toward zero, only to keep the feature weights modest.
+
+The gradient of $L_{\mathrm{ridge}}$ with respect to $w$ has a clean
+closed form:
+
+$$\nabla_w L_{\mathrm{ridge}} = \frac{1}{n} X^\top (Xw - y) + 2 \lambda w.$$
+
+The regularisation contribution is $2 \lambda w$ — a vector pointing
+radially outward from the origin, with magnitude proportional to
+$\|w\|$. A gradient step subtracts this, so each step pulls every
+coefficient *toward* zero by a fraction proportional to its current
+magnitude. Bigger coefficients shrink faster in absolute terms;
+smaller ones shrink slower. The shrinkage is *proportional*: every
+weight gets multiplied by roughly $(1 - 2\alpha\lambda)$ on each step.
+
+Ridge has a closed-form solution. Setting the gradient to zero and
+solving gives
+
+$$w_{\mathrm{ridge}} = (X^\top X + 2n\lambda I)^{-1} X^\top y.$$
+
+The matrix being inverted is $X^\top X$ — the ordinary least-squares
+Gram matrix — plus a constant on the diagonal. This is always
+invertible for $\lambda > 0$, no matter how poorly conditioned
+$X^\top X$ is on its own. That is a separate practical benefit of
+ridge: it makes the linear system numerically stable. The polynomial
+fit you played with in §1 is exactly this closed-form solution
+recomputed each time you move a slider.
+
+The same trick works for logistic regression. The loss becomes
+
+$$L_{\mathrm{ridge\text{-}LR}}(w, b) = -\frac{1}{n} \sum_i \big[y_i \log p_i + (1 - y_i) \log(1 - p_i)\big] + \lambda \|w\|^2,$$
+
+and the gradient gets the same $2\lambda w$ term added to Chapter 7's
+cross-entropy gradient. One extra term in the formula. One extra line
+of code in the loop. The rest of the training algorithm is unchanged.
+
+## 5. L1 regularisation (lasso)
+
+The L1 penalty replaces the sum of *squared* weights with the sum of
+*absolute* weights:
+
+$$R_{\mathrm{L1}}(w) = \sum_{j=1}^p |w_j| = \|w\|_1.$$
+
+Combined with squared-error loss, this gives the *lasso* (least
+absolute shrinkage and selection operator):
+
+$$L_{\mathrm{lasso}}(w) = \frac{1}{2n} \|Xw - y\|^2 + \lambda \|w\|_1.$$
+
+On the surface, L1 looks almost identical to L2 — same idea (penalise
+weight size), same kind of trade-off (data fit versus weight size).
+The two-character difference in the formula hides a structural change.
+
+The first issue is technical. $|w|$ is *not differentiable* at $w = 0$.
+The derivative is $+1$ when $w > 0$ and $-1$ when $w < 0$, but it
+jumps at $w = 0$ without going through a continuous value. Gradient
+descent's clean "move in the direction of $-\nabla L$" recipe doesn't
+strictly apply at the kink. We have to use the *subgradient* (the set
+of values between $-1$ and $+1$ at zero) and the analysis is no
+longer pure calculus.
+
+The deeper issue — and the entire reason the L1 penalty exists — is
+that this corner at $w = 0$ makes the L1-regularised optimum
+*prefer* coefficients that are exactly zero. We will see the
+geometric reason in §6, but the algorithmic version is the
+*soft-thresholding* operator. The proximal-gradient (ISTA) update is
+
+$$w_j^{\text{new}} = \text{sign}\big(w_j^{\text{tmp}}\big) \cdot \max\Big(\big|w_j^{\text{tmp}}\big| - \alpha \lambda, \, 0\Big),$$
+
+where $w_j^{\text{tmp}} = w_j - \alpha \, \nabla_{w_j} L_{\text{data}}$
+is the result of a gradient step on the unregularised data term. Any
+coefficient whose magnitude *after* the gradient step is less than
+$\alpha \lambda$ gets snapped to *exactly zero*. The L2 update shrinks
+by a multiplicative factor; the L1 update shrinks by a constant
+additive amount, and anything that would go negative is clamped to
+zero.
+
+The practical consequence: as $\lambda$ grows, more and more
+coefficients hit zero and stay there. The L1-regularised model can
+drop features entirely — it functions as *automatic feature
+selection*. The L2-regularised model can only shrink them.
+
+## 6. The geometric story
+
+Both penalties can be viewed as *constraints*. By Lagrangian duality,
+minimising $L(w) + \lambda R(w)$ is equivalent — for an appropriate
+correspondence between $\lambda$ and a budget $t$ — to minimising
+$L(w)$ subject to $R(w) \leq t$. The unconstrained loss has some
+optimum $w^\star$ somewhere in weight space. The constrained optimum
+$w_t$ is the lowest-loss point inside the constraint region
+$\{w : R(w) \leq t\}$. If $w^\star$ is already inside the region, the
+constraint isn't binding and the answer is $w^\star$. If it lies
+outside, the answer is on the boundary — at the point where the
+lowest loss-contour first touches the region.
+
+What does each constraint region look like in two-dimensional weight
+space?
+
+The **L2 ball** $\{w : w_1^2 + w_2^2 \leq t^2\}$ is a disc — round,
+smooth, no corners. The boundary is a circle. Any contour first
+touching the circle will touch at a smooth point; both coordinates of
+that point are generically nonzero. L2-regularised weights are
+*small*, but they are not zero.
+
+The **L1 diamond** $\{w : |w_1| + |w_2| \leq t\}$ is a square rotated
+$45°$, with vertices on the axes at $(\pm t, 0)$ and $(0, \pm t)$.
+Crucially, it has *corners*. A loss contour growing outward from
+$w^\star$ will, for many positions of $w^\star$, first touch the
+diamond *at a corner*. At a corner, one of the coordinates is exactly
+zero. L1-regularised weights *can* be exactly zero, and often are.
+
+The widget below puts the two geometries side by side. The grey
+contours are level sets of a quadratic loss centred at the dark
+circle — drag it to relocate the unconstrained optimum. The teal
+region is the constraint region; the teal dot is the constrained
+optimum.
+
+<ConstraintGeometry />
+
+Three things worth noticing:
+
+- When $w^\star$ is *inside* the constraint region, the constraint
+  isn't binding and $w_t = w^\star$. Drag $w^\star$ near the origin
+  to see this.
+- With **L1**, drag $w^\star$ around outside the diamond. For most
+  positions, the constrained optimum sticks to a *corner* — one of
+  the coordinates is exactly zero. The sparsity counter at the bottom
+  picks this up.
+- With **L2**, the constrained optimum is always on the smooth
+  circle. No matter where you drag $w^\star$, neither coordinate is
+  exactly zero.
+
+The L1 corner is doing the work. In higher dimensions the geometry
+generalises immediately: the L1 ball in $p$ dimensions is a
+*cross-polytope* with $2p$ vertices on the axes and many low-
+dimensional faces, each of which fixes some coordinates at zero.
+Loss contours touching low-dimensional faces of the L1 ball produce
+*sparse* models — models in which most of the coefficients are
+exactly zero. This is the geometric reason the lasso is the standard
+tool for automatic feature selection.
+
+## 7. The regularisation path
+
+So far we have thought of $\lambda$ as fixed. In practice you'll want
+to scan a range of $\lambda$ values and see how the coefficients
+evolve. This scan is called the *regularisation path*, and looking at
+it produces an immediate diagnosis of which features matter.
+
+The widget below trains logistic regression on a small synthetic
+dataset with six features — three carry signal (the true coefficients
+are nonzero) and three are pure noise (true coefficients exactly
+zero). For each of sixty values of $\lambda$ (log-spaced from
+$10^{-3}$ to $10^{2}$), the widget refits the model warm-started from
+the previous solution, and plots how every coefficient evolves.
+
+<RegularisationPath />
+
+Toggle between L1 and L2 and notice:
+
+- **L1 (lasso)**: the three noise coefficients hit exactly zero at
+  relatively small $\lambda$ — the optimiser correctly identifies
+  that they are not worth the L1 cost. The signal coefficients
+  survive longer; the weakest signal goes first, then the medium,
+  then the strong. By the right edge of the plot, every coefficient
+  is zero.
+- **L2 (ridge)**: every coefficient shrinks smoothly and continuously
+  toward zero as $\lambda$ grows. The noise coefficients shrink
+  fastest in proportion, but none of them ever become *exactly* zero.
+  The model retains all six features at every $\lambda$ — they are
+  just all small.
+
+The lasso path is *piecewise linear*. There are precise $\lambda$
+values at which a coefficient enters or leaves the model, and
+between them every surviving coefficient is a linear function of
+$\lambda$. The exact-path algorithm is called LARS, and it is one of
+the more elegant pieces of computational statistics from the early
+2000s. The ridge path is a smooth curve everywhere — it has no
+inflection points, no kinks.
+
+The path picture also gives you the practical tool for choosing
+$\lambda$ in real applications: pick a few candidate values by
+visually inspecting the path, then use *cross-validation* (Chapter
+11) to compare them on held-out data. The path tells you which
+$\lambda$ produces a sensibly structured model; cross-validation
+tells you which $\lambda$ generalises best.
+
+## 8. Practical concerns
+
+A grab-bag of facts you'll want once you're using regularisation in
+real code.
+
+**Scaling matters.** Both penalties act on the raw coefficients
+$w_j$. If feature $x_1$ is measured in metres and feature $x_2$ in
+millimetres, the coefficients $w_1$ and $w_2$ are not comparable —
+and a single $\lambda$ applied to both will penalise them very
+unevenly. The standard remedy is *feature standardisation*: subtract
+the mean and divide by the standard deviation of each feature,
+computed on the training set, before fitting. Then all coefficients
+live on the same scale and the penalty is fair.
+
+**Don't regularise the intercept.** The bias term $b$ that lets the
+model's mean output be anything other than zero has no business being
+shrunk toward zero. In every algorithm we've discussed — ridge,
+lasso, regularised logistic regression — the intercept is left out
+of the penalty.
+
+**Choosing $\lambda$.** No single value of $\lambda$ is right for
+every problem. The standard recipe is *cross-validation*: train at
+several candidate values, evaluate each on held-out data, pick the
+$\lambda$ that gives the best held-out performance. Chapter 11
+covers this in detail.
+
+**Elastic net.** L1 and L2 each have a structural weakness. L2 doesn't
+produce sparsity. L1, when several features are correlated, tends to
+pick one and zero out the rest — even when keeping a few of them
+small would have given a better model. The *elastic net* penalty
+combines them:
+
+$$R_{\mathrm{EN}}(w) = \alpha \|w\|_1 + (1 - \alpha) \|w\|^2,$$
+
+with $\alpha \in [0, 1]$ interpolating between pure lasso and pure
+ridge. Elastic net retains L1's sparsity and L2's stability under
+correlated features. It is the workhorse for high-dimensional linear
+models in industry.
+
+**MAP-prior interpretation.** From a Bayesian view, regularisation
+has a precise meaning. The L2 penalty is equivalent to placing a
+*Gaussian prior* on the weights — $w_j \sim \mathcal{N}(0, \sigma^2)$
+with $\sigma^2 \propto 1/\lambda$ — and finding the
+maximum-a-posteriori estimate. The L1 penalty is equivalent to a
+*Laplace prior*, $w_j \sim \text{Laplace}(0, b)$ with $b \propto
+1/\lambda$. The Gaussian is round (no sharp peak at zero) and
+produces shrinkage; the Laplace has a sharp peak at zero and
+produces sparsity. The geometry of the priors mirrors the geometry
+of the constraint regions exactly.
+
+## 9. Complexity
+
+**Storage.** Same as unregularised — the model is still $p$ weights
+and a bias. No new storage.
+
+**Per-step training cost.** L2 adds a constant-time term to the
+gradient — $O(p)$ per step. L1 adds the soft-thresholding step at
+the end of each update — also $O(p)$. Regularised training has the
+same big-$O$ cost as unregularised: $O(np)$ per step for binary
+problems, $O(nKp)$ for multi-class.
+
+**Convexity is preserved.** Both penalty terms are convex functions
+of $w$, so adding either to a convex loss (squared error,
+cross-entropy) gives a convex problem. Gradient descent and its
+variants converge to the global optimum, and that optimum is unique
+up to the L1 corner cases where multiple equivalent solutions can
+coexist.
+
+**Closed forms.** Ridge regression has a closed-form solution; that
+is a notable advantage for small or moderate problems. The lasso has
+no closed-form, but iterative algorithms (coordinate descent, ISTA,
+LARS) converge in $O(p)$ per iteration with well-understood
+convergence rates.
+
+## 10. Implementing it yourself
+
+Logistic regression with both L1 and L2 penalties, in NumPy. Same
+training loop as Chapter 7, plus one penalty term in each case.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+# Six-feature dataset: three carry signal, three are noise.
+rng = np.random.default_rng(7)
+n, p = 200, 6
+X = rng.normal(size=(n, p))
+true_w = np.array([1.4, -1.0, 0.7, 0, 0, 0])
+y = ((X @ true_w + rng.normal(0, 0.5, n)) > 0).astype(float)
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+def soft_threshold(z, t):
+    return np.sign(z) * np.maximum(np.abs(z) - t, 0)
+
+def train_l2(X, y, lam, lr=0.3, steps=500):
+    n, p = X.shape
+    w = np.zeros(p)
+    b = 0.0
+    for _ in range(steps):
+        p_pred = sigmoid(X @ w + b)
+        w -= lr * (X.T @ (p_pred - y) / n + 2 * lam * w)
+        b -= lr * np.mean(p_pred - y)
+    return w, b
+
+def train_l1(X, y, lam, lr=0.3, steps=500):
+    n, p = X.shape
+    w = np.zeros(p)
+    b = 0.0
+    for _ in range(steps):
+        p_pred = sigmoid(X @ w + b)
+        w_tmp = w - lr * (X.T @ (p_pred - y) / n)
+        w = soft_threshold(w_tmp, lr * lam)
+        b -= lr * np.mean(p_pred - y)
+    return w, b
+
+print(f"True coefficients: {true_w}\\n")
+print(f"{'lambda':>8s}  {'L2 coefficients':<45s}   {'L1 coefficients':<45s}  L1 nz")
+for lam in [0.0, 0.01, 0.05, 0.2, 0.5]:
+    w_l2, _ = train_l2(X, y, lam)
+    w_l1, _ = train_l1(X, y, lam)
+    nz_l1 = int(np.sum(np.abs(w_l1) > 1e-6))
+    print(f"{lam:>8.3f}  {str(np.round(w_l2, 3)):<45s}   {str(np.round(w_l1, 3)):<45s}  {nz_l1}/6")
+`}
+/>
+
+Twenty meaningful lines. Same training loop as Chapter 7, plus one
+$2 \lambda w$ term for L2 and one soft-thresholding line for L1. The
+output shows the two penalties' signatures side by side: L2 shrinks
+every coefficient smoothly toward zero; L1 zeroes the noise
+coefficients exactly, one by one.
+
+## 11. Problems
+
+### Problem 1 — The geometry of sparsity
+
+A conceptual question. In two dimensions, the L1 constraint region is
+a diamond with vertices on the axes; the L2 constraint region is a
+disc. You can make them have the same area by choosing budgets
+appropriately. Yet only L1 produces models with coefficients exactly
+equal to zero. Explain geometrically why.
+
+<details>
+  <summary>Show solution</summary>
+
+The L1 diamond has *corners* at the axes. A loss contour growing
+outward from the unconstrained optimum will, for most positions of
+the optimum, first touch the diamond at one of these corners. At a
+corner, one coordinate is exactly zero. The L2 disc has no corners —
+every point on its boundary is smooth, and a loss contour grown from
+a generic point will touch the disc at a single smooth point with
+both coordinates nonzero.
+
+In higher dimensions the picture generalises. The L1 ball is a
+cross-polytope with many low-dimensional faces; each face has some
+coordinates fixed at zero, and contours touching those faces produce
+*sparse* solutions. The L2 ball is smooth everywhere, so the touched
+point is a single smooth point with no zero coordinates. Sparsity is
+a consequence of corners — of geometric *non-smoothness* — in the
+constraint region. It is impossible to get with a smooth
+regulariser.
+
+</details>
+
+### Problem 2 — Implement ridge regression closed-form
+
+Given a design matrix $X$ (with the first column being all 1s for the
+intercept), a target vector $y$, and a regularisation strength
+$\lambda$, compute the ridge coefficients via the closed form
+$w = (X^\top X + \lambda I)^{-1} X^\top y$ — but with the intercept
+unregularised.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def ridge_regression(X, y, lam):
+    # X shape (n, p) — first column is all 1s (intercept).
+    # Your code:
+    #   1. Form (X^T X + λ · diag([0, 1, 1, ..., 1])).
+    #   2. Solve for w = (...)^-1 X^T y. Use np.linalg.solve, not inv.
+    pass
+
+# Test on synthetic data
+rng = np.random.default_rng(0)
+n, p = 50, 5
+X = np.column_stack([np.ones(n), rng.normal(size=(n, p))])
+true_w = np.array([0.5, 1.0, -0.7, 0.3, 0, 0])
+y = X @ true_w + rng.normal(0, 0.3, n)
+
+w_ols = ridge_regression(X, y, lam=0)
+w_rid = ridge_regression(X, y, lam=2.0)
+print(f"True:  {true_w}")
+print(f"OLS:   {np.round(w_ols, 3)}")
+print(f"Ridge: {np.round(w_rid, 3)}")
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def ridge_regression(X, y, lam):
+    p = X.shape[1]
+    penalty = lam * np.eye(p)
+    penalty[0, 0] = 0  # don't penalise the intercept
+    return np.linalg.solve(X.T @ X + penalty, X.T @ y)
+
+rng = np.random.default_rng(0)
+n, p = 50, 5
+X = np.column_stack([np.ones(n), rng.normal(size=(n, p))])
+true_w = np.array([0.5, 1.0, -0.7, 0.3, 0, 0])
+y = X @ true_w + rng.normal(0, 0.3, n)
+
+w_ols = ridge_regression(X, y, lam=0)
+w_rid = ridge_regression(X, y, lam=2.0)
+print(f"True:  {true_w}")
+print(f"OLS:   {np.round(w_ols, 3)}")
+print(f"Ridge: {np.round(w_rid, 3)}")
+`}
+/>
+
+The penalty matrix is $\lambda$ on every diagonal entry except the
+intercept's. The system $(X^\top X + \lambda I) w = X^\top y$ is
+always solvable for $\lambda > 0$ — even when $X^\top X$ alone is
+rank-deficient, which makes ridge useful well beyond regularisation
+proper. Notice that at $\lambda = 2$ ridge has shrunk every nonzero
+coefficient noticeably toward zero, including the two true zeros at
+the end. None of them is exactly zero. That is the L2 signature.
+
+</details>
+
+### Problem 3 — Implement L2 logistic regression
+
+Train binary logistic regression with an L2 penalty on a synthetic
+dataset. Compare the learned coefficients at $\lambda = 0$ and
+$\lambda = 0.1$. Recover Chapter 7's training loop and add the
+penalty term.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(2)
+n, p = 200, 5
+X = rng.normal(size=(n, p))
+true_w = np.array([1.2, -0.8, 0.6, 0, 0])
+y = ((X @ true_w + rng.normal(0, 0.3, n)) > 0).astype(float)
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+def train_l2(X, y, lam, lr=0.3, steps=400):
+    # Your code: gradient descent on
+    #   (1/n) Σ BCE(y_i, σ(w·x_i + b)) + lam · ||w||^2
+    # Bias is unregularised. Return (w, b).
+    pass
+
+w0, _ = train_l2(X, y, lam=0.0)
+w_l2, _ = train_l2(X, y, lam=0.1)
+print(f"True:     {true_w}")
+print(f"λ = 0:    {np.round(w0, 3)}")
+print(f"λ = 0.1:  {np.round(w_l2, 3)}")
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(2)
+n, p = 200, 5
+X = rng.normal(size=(n, p))
+true_w = np.array([1.2, -0.8, 0.6, 0, 0])
+y = ((X @ true_w + rng.normal(0, 0.3, n)) > 0).astype(float)
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+def train_l2(X, y, lam, lr=0.3, steps=400):
+    n, p = X.shape
+    w = np.zeros(p)
+    b = 0.0
+    for _ in range(steps):
+        p_pred = sigmoid(X @ w + b)
+        grad_w = X.T @ (p_pred - y) / n + 2 * lam * w
+        grad_b = np.mean(p_pred - y)
+        w -= lr * grad_w
+        b -= lr * grad_b
+    return w, b
+
+w0, _ = train_l2(X, y, lam=0.0)
+w_l2, _ = train_l2(X, y, lam=0.1)
+print(f"True:     {true_w}")
+print(f"λ = 0:    {np.round(w0, 3)}")
+print(f"λ = 0.1:  {np.round(w_l2, 3)}")
+`}
+/>
+
+One line changes from Chapter 7's training loop: the gradient with
+respect to $w$ gains a $2 \lambda w$ term. The bias is not
+regularised. The regularised coefficients are noticeably smaller than
+the unregularised ones, especially the last two — which should be
+zero, and L2 has dutifully pulled them closer to zero but never
+exactly there.
+
+</details>
+
+### Problem 4 — Implement L1 logistic regression (ISTA)
+
+Train binary logistic regression with an L1 penalty using proximal
+gradient (ISTA). Each step: take a gradient step on the smooth part
+of the loss, then soft-threshold every coefficient.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(3)
+n, p = 200, 5
+X = rng.normal(size=(n, p))
+true_w = np.array([1.2, -0.8, 0.6, 0, 0])
+y = ((X @ true_w + rng.normal(0, 0.3, n)) > 0).astype(float)
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+def soft_threshold(z, t):
+    # Your code: vectorised sign(z) * max(|z| - t, 0).
+    pass
+
+def train_l1(X, y, lam, lr=0.3, steps=400):
+    # Your code:
+    #   Same as Problem 3 but after the gradient step on w,
+    #   replace w with soft_threshold(w, lr * lam).
+    #   Don't apply soft_threshold to the bias.
+    pass
+
+w0, _ = train_l1(X, y, lam=0.0)
+w_small, _ = train_l1(X, y, lam=0.02)
+w_large, _ = train_l1(X, y, lam=0.1)
+print(f"True:      {true_w}")
+print(f"λ = 0:     {np.round(w0, 3)}")
+print(f"λ = 0.02:  {np.round(w_small, 3)}")
+print(f"λ = 0.1:   {np.round(w_large, 3)}")
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(3)
+n, p = 200, 5
+X = rng.normal(size=(n, p))
+true_w = np.array([1.2, -0.8, 0.6, 0, 0])
+y = ((X @ true_w + rng.normal(0, 0.3, n)) > 0).astype(float)
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+def soft_threshold(z, t):
+    return np.sign(z) * np.maximum(np.abs(z) - t, 0)
+
+def train_l1(X, y, lam, lr=0.3, steps=400):
+    n, p = X.shape
+    w = np.zeros(p)
+    b = 0.0
+    for _ in range(steps):
+        p_pred = sigmoid(X @ w + b)
+        grad_w = X.T @ (p_pred - y) / n
+        w_tmp = w - lr * grad_w
+        w = soft_threshold(w_tmp, lr * lam)
+        b -= lr * np.mean(p_pred - y)
+    return w, b
+
+w0, _ = train_l1(X, y, lam=0.0)
+w_small, _ = train_l1(X, y, lam=0.02)
+w_large, _ = train_l1(X, y, lam=0.1)
+print(f"True:      {true_w}")
+print(f"λ = 0:     {np.round(w0, 3)}")
+print(f"λ = 0.02:  {np.round(w_small, 3)}")
+print(f"λ = 0.1:   {np.round(w_large, 3)}")
+`}
+/>
+
+Soft-thresholding is the L1 update's secret weapon. After the regular
+gradient step on the data-fit term, each coefficient is "pulled
+toward zero" by exactly $\alpha \lambda$ units — and if that pull
+would have moved the coefficient past zero, the coefficient is
+clamped at zero instead. At $\lambda = 0.02$ the two true-zero
+coefficients are already exactly zero. At $\lambda = 0.1$, even
+more coefficients have been pruned. L1 doesn't just *shrink* — it
+*prunes*.
+
+</details>
+
+### Problem 5 — Cross-validation for choosing λ
+
+Choosing $\lambda$ matters as much as choosing between L1 and L2.
+Implement a simple *holdout validation*: split the data 80/20, train
+at several values of $\lambda$ on the training portion, evaluate on
+the held-out portion, and report the $\lambda$ that performs best.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(11)
+n, p = 300, 6
+X = rng.normal(size=(n, p))
+true_w = np.array([1.4, -1.0, 0.7, 0, 0, 0])
+y = ((X @ true_w + rng.normal(0, 0.5, n)) > 0).astype(float)
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+def soft_threshold(z, t):
+    return np.sign(z) * np.maximum(np.abs(z) - t, 0)
+
+def train_l1(X, y, lam, lr=0.3, steps=400):
+    n, p = X.shape
+    w = np.zeros(p)
+    b = 0.0
+    for _ in range(steps):
+        p_pred = sigmoid(X @ w + b)
+        w = soft_threshold(w - lr * (X.T @ (p_pred - y) / n), lr * lam)
+        b -= lr * np.mean(p_pred - y)
+    return w, b
+
+# Your code:
+#   1. Shuffle the (X, y) pairs and split 80/20 into train / val.
+#   2. For each λ in [0.0, 0.005, 0.02, 0.05, 0.1, 0.3]:
+#      - Train L1 logistic regression on train.
+#      - Evaluate accuracy on val.
+#   3. Print a table and report the best λ.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(11)
+n, p = 300, 6
+X = rng.normal(size=(n, p))
+true_w = np.array([1.4, -1.0, 0.7, 0, 0, 0])
+y = ((X @ true_w + rng.normal(0, 0.5, n)) > 0).astype(float)
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+def soft_threshold(z, t):
+    return np.sign(z) * np.maximum(np.abs(z) - t, 0)
+
+def train_l1(X, y, lam, lr=0.3, steps=400):
+    n, p = X.shape
+    w = np.zeros(p)
+    b = 0.0
+    for _ in range(steps):
+        p_pred = sigmoid(X @ w + b)
+        w = soft_threshold(w - lr * (X.T @ (p_pred - y) / n), lr * lam)
+        b -= lr * np.mean(p_pred - y)
+    return w, b
+
+# 80/20 split
+perm = rng.permutation(n)
+split = int(0.8 * n)
+tr, vl = perm[:split], perm[split:]
+X_tr, y_tr = X[tr], y[tr]
+X_vl, y_vl = X[vl], y[vl]
+
+print(f"{'lambda':>8s}  {'train acc':>10s}  {'val acc':>9s}  {'nonzero w':>10s}")
+best_lam, best_val = None, -np.inf
+for lam in [0.0, 0.005, 0.02, 0.05, 0.1, 0.3]:
+    w, b = train_l1(X_tr, y_tr, lam)
+    pred_tr = (sigmoid(X_tr @ w + b) >= 0.5).astype(float)
+    pred_vl = (sigmoid(X_vl @ w + b) >= 0.5).astype(float)
+    acc_tr = np.mean(pred_tr == y_tr)
+    acc_vl = np.mean(pred_vl == y_vl)
+    nz = int(np.sum(np.abs(w) > 1e-6))
+    print(f"{lam:>8.3f}  {acc_tr:>10.3f}  {acc_vl:>9.3f}  {nz:>5d} / {p}")
+    if acc_vl > best_val:
+        best_val = acc_vl
+        best_lam = lam
+print(f"\\nBest λ on held-out data: {best_lam}  (val accuracy {best_val:.3f})")
+`}
+/>
+
+The best $\lambda$ on this dataset is typically a modest value — large
+enough to prune the noise features, small enough to retain the
+signal. At $\lambda = 0$ the model is unregularised and starts to
+overfit the noise; at very large $\lambda$ the model is too
+constrained and underfits. Holdout validation finds the sweet spot
+automatically.
+
+This is the core idea behind *cross-validation* — repeat the procedure
+across multiple train/validation splits and average the results.
+Chapter 11 generalises it.
+
+</details>
+
+---
+
+*Next: Chapter 10 — Evaluation metrics.* Accuracy is the metric
+beginners use; precision, recall, ROC curves, and calibration are the
+metrics that tell you what your classifier is actually doing wrong.
