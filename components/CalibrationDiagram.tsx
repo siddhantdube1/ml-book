@@ -123,21 +123,25 @@ export default function CalibrationDiagram() {
             strokeWidth={1}
             strokeDasharray="4,3"
           />
-          {/* label parallels the diagonal but sits in the lower-right
-              triangle (y < x), which stays empty for both the calibrated
-              curve (dots on the diagonal) and the overconfident one (its
-              right-half dots ride well above this point). */}
-          <text
-            x={px(0.62)}
-            y={py(0.4)}
-            fontSize={10}
-            fill="var(--ink-muted)"
-            textAnchor="middle"
-            fontStyle="italic"
-            transform={`rotate(-45 ${px(0.62).toFixed(1)} ${py(0.4).toFixed(1)})`}
-          >
-            perfect calibration
-          </text>
+          {/* legend: dashed swatch + label, top-left of the plot */}
+          <g transform={`translate(${PAD_L + 10}, ${PAD_T + 12})`}>
+            <line
+              x1={0} y1={0} x2={18} y2={0}
+              stroke="var(--rule)"
+              strokeWidth={1}
+              strokeDasharray="4,3"
+            />
+            <text
+              x={22}
+              y={4}
+              fontSize={10}
+              fill="var(--ink-muted)"
+              fontStyle="italic"
+              fontFamily="var(--font-sans, sans-serif)"
+            >
+              perfect calibration
+            </text>
+          </g>
 
           {/* reliability curve */}
           <path d={curvePath} fill="none" stroke="var(--accent)" strokeWidth={2} />
