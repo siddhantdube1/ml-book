@@ -30,7 +30,7 @@ const parts: { title: string; chapters: Chapter[] }[] = [
   {
     title: 'III — Evaluating models',
     chapters: [
-      { num: 10, title: 'Evaluation metrics', blurb: 'Accuracy, precision, recall, ROC, and when each one lies.' },
+      { num: 10, title: 'Evaluation metrics', blurb: 'Accuracy, precision, recall, ROC, and when each one lies.', href: '/chapters/10-evaluation-metrics' },
       { num: 11, title: 'Cross-validation and tuning', blurb: 'How to choose hyperparameters without fooling yourself.' },
     ],
   },

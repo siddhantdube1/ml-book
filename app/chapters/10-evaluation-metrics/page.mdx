@@ -1,0 +1,717 @@
+import ThresholdConfusion from '@/components/ThresholdConfusion'
+import RocCurve from '@/components/RocCurve'
+import CalibrationDiagram from '@/components/CalibrationDiagram'
+import PyodideEditor from '@/components/PyodideEditor'
+
+export const metadata = {
+  title: 'Evaluation metrics',
+  description:
+    'Why accuracy lies, and the toolkit that tells the truth: the confusion matrix, precision and recall, the decision threshold as a free parameter, ROC and AUC, precision-recall curves, and calibration — with three interactive visualisations, runnable Python, and five problems.',
+  openGraph: {
+    title: 'Evaluation metrics',
+    description:
+      'An interactive walk-through of classifier evaluation — confusion matrices, precision/recall, ROC/AUC, precision-recall curves, and calibration.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 10 · Part III — Evaluating models
+</p>
+
+# Evaluation metrics
+
+*Why the one number we have trusted for three chapters has been lying,
+and the toolkit that tells the truth about a classifier.*
+
+A model that screens for a rare cancer can be right 99% of the time and
+still be worthless. If one person in a hundred carries the disease, a
+model that simply answers "no" to everyone — never flagging a single
+case — scores 99% accuracy. It has also never once done its job.
+Accuracy, the number we have leaned on for three chapters, has been
+quietly lying about how good our classifiers are.
+
+This chapter is about measuring classifiers honestly. Accuracy is one
+number, and the world is more complicated than one number. We will pull
+apart the kinds of mistake a classifier can make, see why precision and
+recall usually pull in opposite directions, watch a single tunable
+threshold trace out an entire family of models, and finish with the most
+under-appreciated property of all: whether a model that says "0.7" is
+right 70% of the time.
+
+By the end you will be able to look at a classifier and say not just how
+often it is right, but what it is right *about* — and whether you can
+trust the probabilities it hands you.
+
+## 1. Why accuracy lies
+
+Accuracy is the fraction of predictions that are correct. It is the
+first metric anyone reaches for, and for balanced problems with
+symmetric costs it is perfectly reasonable. The trouble starts when
+either of those assumptions breaks.
+
+Take *class imbalance*. Fraud is rare; disease is rare; the click on any
+given advert is rare. When one class vastly outnumbers the other, a model
+can score brilliantly on accuracy by ignoring the rare class entirely. A
+spam filter on an inbox that is 99% legitimate mail can hit 99% accuracy
+by marking everything as "not spam" — and it would be useless, because
+the entire point was to catch the 1%. The accuracy number looks like an
+A grade and describes a model that does nothing.
+
+The second problem is that accuracy treats all mistakes as equal. Telling
+a healthy patient they have cancer and telling a cancer patient they are
+healthy are both "errors", but they are not remotely the same error. One
+leads to an anxious week and a second test; the other can be fatal. A
+single accuracy figure cannot distinguish them, because it throws away
+*which kind* of mistake was made.
+
+Both problems have the same root cause: accuracy collapses a rich,
+structured outcome into one scalar and discards everything else. To
+measure honestly we need to keep the structure. That structure has a
+name.
+
+## 2. The confusion matrix
+
+Every prediction a binary classifier makes falls into one of four
+buckets, depending on what it predicted and what was true:
+
+- **True positive (TP)** — predicted positive, actually positive. A
+  correct catch.
+- **False positive (FP)** — predicted positive, actually negative. A
+  false alarm.
+- **False negative (FN)** — predicted negative, actually positive. A
+  missed case.
+- **True negative (TN)** — predicted negative, actually negative. A
+  correct pass.
+
+Arranged in a 2×2 grid — predicted class along one axis, actual class
+along the other — these four counts form the *confusion matrix*. It is
+the complete record of a classifier's performance on a dataset at a
+fixed decision rule. Nothing is thrown away; every metric in this chapter
+is some ratio of these four numbers.
+
+Accuracy, in this language, is
+
+$$\text{accuracy} = \frac{TP + TN}{TP + FP + FN + TN}.$$
+
+The two correct cells over the total. You can now see exactly why it lies
+under imbalance: if negatives swamp positives, $TN$ dominates the
+numerator and the denominator alike, and the fraction stays near 1 almost
+regardless of how the rare positives are handled. The matrix keeps the
+$TP$ and $FN$ counts that accuracy drowns out. The metrics that follow are
+ways of reading them.
+
+## 3. Precision and recall
+
+Two questions matter when the positive class is the one you care about,
+and they are not the same question.
+
+*When the model flags something, how often is it right?* That is
+**precision** — the fraction of predicted positives that are truly
+positive:
+
+$$\text{precision} = \frac{TP}{TP + FP}.$$
+
+*Of all the things the model should have flagged, how many did it catch?*
+That is **recall** — the fraction of actual positives that were found:
+
+$$\text{recall} = \frac{TP}{TP + FN}.$$
+
+Precision is about the trustworthiness of a positive prediction; recall
+is about coverage of the positive class. A cancer screen with high recall
+catches nearly every real case but may raise many false alarms. One with
+high precision rarely cries wolf but may quietly miss real cases. Which
+you want depends entirely on the costs: for a first-line disease screen
+you favour recall (a false alarm is cheap, a miss is deadly); for flagging
+emails as spam you favour precision (deleting one real message is worse
+than letting one spam through).
+
+The two usually trade against each other, and there is a reason, which the
+next section makes visible: both are computed at a particular decision
+threshold, and moving that threshold to catch more true positives almost
+always drags in more false positives too.
+
+When you genuinely need a single number — to rank models, say — the
+standard summary is the **F1 score**, the *harmonic* mean of precision and
+recall:
+
+$$F_1 = 2 \cdot \frac{\text{precision} \cdot \text{recall}}{\text{precision} + \text{recall}}.$$
+
+The harmonic mean, not the ordinary average, because it punishes
+imbalance between the two. A model with precision 1.0 and recall 0.0 — it
+makes a single correct positive prediction and misses everything else —
+has an arithmetic mean of 0.5 but an F1 of 0. To score well on F1 you must
+do well on *both*. That is usually what "good" means for an imbalanced
+problem, and it is why F1 is the default headline metric there rather than
+accuracy.
+
+## 4. The threshold is yours to choose
+
+Here is the thing that is easy to miss. A logistic regression model — the
+classifier from Chapter 7 — does not output a class. It outputs a
+*probability*. The class only appears when you compare that probability to
+a threshold, and 0.5 is a default, not a law of nature. The threshold is a
+free parameter, and choosing it is a decision you make, not the model.
+
+Slide the threshold and every cell of the confusion matrix moves. Lower it
+toward 0 and the model predicts positive more readily: recall climbs (you
+catch more real positives) but precision falls (you also flag more
+negatives). Raise it toward 1 and the reverse happens. Precision and
+recall walk in opposite directions, and the threshold is the dial that
+trades one for the other.
+
+The widget below shows this directly. The orange and blue histograms are
+the model's scores for the positive and negative examples; they overlap,
+because no real classifier separates the classes perfectly. The vertical
+line is the threshold — drag it, and watch the confusion matrix and the
+four metrics respond.
+
+<ThresholdConfusion />
+
+Two things are worth doing deliberately:
+
+- On the **balanced** data, drag the threshold from left to right and
+  watch precision rise as recall falls. There is no setting that maximises
+  both; you are choosing a point on a trade-off, and the right point
+  depends on your costs.
+- Switch to the **imbalanced** data — the threshold stays where you left
+  it. Now watch accuracy: it sits up around 95% across most of the range,
+  looking like a triumph, while precision and recall tell you the model is
+  doing far less than that number suggests. This is §1's lie, made
+  tactile. Accuracy is high because the negatives are easy and there are
+  enormously many of them.
+
+One threshold gives you one column of trade-offs — one operating point.
+The natural next question is what *all* the thresholds look like at once.
+
+## 5. ROC and AUC
+
+Sweep the threshold from 1 down to 0 and plot, at every setting, the *true
+positive rate* (recall, $TP / (TP+FN)$) against the *false positive rate*
+($FP / (FP+TN)$). The trace is the **ROC curve** — receiver operating
+characteristic, a name inherited from wartime radar that has long since
+stopped meaning anything useful, so don't read into it.
+
+Each point on the curve is one threshold — one confusion matrix, one
+operating point. The curve is the whole family of them at once. The
+bottom-left corner is the threshold at 1 (predict nothing positive: no
+true positives, no false positives). The top-right is the threshold at 0
+(predict everything positive: all true positives caught, but all negatives
+falsely flagged too). A model that ranks positives above negatives bows
+the curve toward the top-left — high true-positive rate while the
+false-positive rate is still low. A model that ranks no better than chance
+runs along the diagonal.
+
+<RocCurve />
+
+Drag the threshold and watch the marker travel the curve — the explicit
+version of "one threshold is one point" from the last section. The shaded
+region is the **area under the curve (AUC)**, and it has a clean
+interpretation that has nothing to do with any particular threshold: *AUC
+is the probability that the model scores a randomly chosen positive higher
+than a randomly chosen negative.* It measures how well the model **ranks**,
+independent of where you put the threshold. AUC of 1.0 is a perfect
+ranker; 0.5 is a coin flip; below 0.5 means the model is ranking
+backwards and you should flip its sign.
+
+Because AUC is threshold-independent, it is the right tool for comparing
+two models' raw discriminative power before you have committed to an
+operating point. It answers "which model separates the classes better?"
+rather than "how good is this model at this threshold?"
+
+## 6. When ROC flatters: precision-recall curves
+
+The ROC curve has a blind spot, and class imbalance walks straight into
+it. The false-positive rate has $TN$ in its denominator — and when
+negatives are abundant, that denominator is enormous, so even a large
+absolute number of false positives produces a tiny false-positive rate.
+The ROC curve stays pinned to the top-left and the AUC looks excellent,
+while in absolute terms the model may be drowning the few real positives
+in false alarms.
+
+Switch the widget above to the **imbalanced** data and toggle between ROC
+and PR. The ROC barely flinches. The **precision-recall curve** —
+precision against recall as the threshold sweeps — collapses, because
+precision has $FP$ in its denominator rather than $TN$, so it *feels*
+every false positive against the small pool of true positives. The PR
+curve never looks at the true negatives at all, which is exactly why it
+stays honest when they dominate.
+
+The rule of thumb: when the positive class is rare and is the class you
+care about, read the precision-recall curve, not the ROC. The no-skill
+baseline on a PR plot is not the diagonal — it is a horizontal line at the
+positive class's base rate, which is why a PR curve for a 5%-positive
+problem starts from a much lower floor than your intuition, trained on
+balanced ROC plots, expects.
+
+## 7. Calibration: are the probabilities real?
+
+AUC and the curves all measure one thing: how well the model **ranks**.
+But ranking is not the only thing a probability is good for. If a model
+says "0.7", you would like that to mean something — that among all the
+times it says 0.7, the event happens about 70% of the time. A model with
+that property is **calibrated**, and calibration is a completely different
+question from ranking.
+
+This pays off a promise from Chapter 7 §8, where we argued that a
+probability is more information than a label: a 0.99 is something you can
+act on, a 0.51 you should treat gingerly. That argument only holds if the
+probabilities are calibrated. A model can rank flawlessly — perfect AUC —
+and still be wildly miscalibrated, its probabilities all crushed toward 0
+and 1 or all hedged toward 0.5. Then "0.99" and "0.51" no longer mean what
+you think, and the information you were counting on is an illusion.
+
+To see calibration, bin the predictions by their probability and, for each
+bin, plot the mean predicted probability against the fraction that turned
+out positive. Perfect calibration lies on the diagonal: predicted equals
+observed. This is a **reliability diagram**.
+
+<CalibrationDiagram />
+
+The two models in the widget have *identical AUC* — toggle between them and
+the AUC readout does not move. They rank examples equally well; in fact
+they rank them *in exactly the same order*, because the overconfident one
+is built by passing the calibrated model's scores through a transform that
+stretches them toward 0 and 1 without changing their order. A
+monotonic transform cannot change a ranking, so AUC is untouched. What it
+*does* change is the meaning of the numbers. The overconfident model's
+curve bows away from the diagonal — when it says 0.9 the truth is closer
+to 0.8, when it says 0.1 the truth is nearer 0.2 — and its **expected
+calibration error** (ECE, the average gap between predicted and observed
+across the bins) jumps from about 0.02 to around 0.10 while the AUC holds
+at 0.85.
+
+That dissociation is the deepest idea in the chapter. *Ranking well and
+being trustworthy are different properties.* A model can ace AUC and lie
+in its probabilities. If you only ever threshold the output into a class,
+ranking is all you need. The moment you use the probability as a
+probability — to set a risk-based threshold, to feed a downstream
+expected-value calculation, to tell a doctor "60% chance" — calibration is
+what makes it safe, and you have to measure it separately. Techniques for
+fixing miscalibration (Platt scaling, isotonic regression, temperature
+scaling) exist; the first step is always to draw the diagram and look.
+
+## 8. Metrics for regression
+
+Classification has dominated this chapter because that is where the
+subtleties live, but regression needs metrics too, and they are
+mercifully more straightforward. When the target is a real number, three
+metrics cover almost everything.
+
+**Mean squared error** is the loss from Chapter 6, doubling as a metric:
+$\text{MSE} = \frac{1}{n}\sum_i (\hat{y}_i - y_i)^2$. It penalises large
+errors quadratically, so a single wild miss costs more than many small
+ones — useful when big errors are especially bad, but sensitive to
+outliers. Its square root, **RMSE**, has the virtue of being in the same
+units as the target.
+
+**Mean absolute error**, $\text{MAE} = \frac{1}{n}\sum_i |\hat{y}_i -
+y_i|$, penalises errors linearly. It is more robust to outliers than MSE
+and reads naturally — "off by 3.2 on average" — but its kink at zero makes
+it slightly less convenient to optimise.
+
+**R²**, the coefficient of determination, rescales MSE into a unitless
+score: $R^2 = 1 - \frac{\sum_i (\hat{y}_i - y_i)^2}{\sum_i (y_i -
+\bar{y})^2}$. It compares the model against the dumbest baseline —
+always predicting the mean $\bar{y}$. $R^2 = 1$ is perfect; $R^2 = 0$ means
+the model is no better than the mean; and yes, $R^2$ can go *negative*,
+which means the model is worse than predicting the mean — a humbling but
+informative result.
+
+## 9. Complexity
+
+Computing metrics is cheap next to training the model that produced the
+scores. The confusion matrix at a fixed threshold is one pass over the
+predictions: $O(n)$. Precision, recall, F1, and accuracy are then
+arithmetic on four numbers, $O(1)$.
+
+The curves cost a little more. An ROC or PR curve sweeps every threshold,
+which means visiting the examples in score order — one sort, $O(n \log n)$,
+then a single linear sweep accumulating $TP$ and $FP$ counts, $O(n)$. AUC
+is the trapezoidal area under the points you just computed, $O(n)$, and
+the rank-based form of AUC needs only the same sort. Calibration is one
+$O(n)$ bucketing pass over the scores.
+
+So every metric in this chapter is $O(n)$ or $O(n \log n)$ — negligible
+against the cost of fitting the model. There is never a computational
+reason to skimp on evaluation. The only real cost is having enough
+*labelled* data to estimate the metrics reliably, which the next chapter
+takes seriously.
+
+## 10. Implementing it yourself
+
+The whole toolkit in NumPy — confusion counts, precision/recall/F1, the
+ROC sweep, AUC computed two ways, and calibration with ECE — on a
+synthetic, calibrated score set.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+n = 2000
+
+# Calibrated scores: draw a latent probability, draw the label from it.
+z = rng.normal(0, 1.8, n)
+scores = 1 / (1 + np.exp(-z))           # model's predicted probability
+y = (rng.random(n) < scores).astype(int)  # true label ~ Bernoulli(score)
+
+def confusion(y, scores, t):
+    pred = scores >= t
+    tp = int(np.sum(pred & (y == 1)))
+    fp = int(np.sum(pred & (y == 0)))
+    fn = int(np.sum(~pred & (y == 1)))
+    tn = int(np.sum(~pred & (y == 0)))
+    return tp, fp, fn, tn
+
+tp, fp, fn, tn = confusion(y, scores, 0.5)
+precision = tp / (tp + fp) if tp + fp else 0.0
+recall    = tp / (tp + fn) if tp + fn else 0.0
+f1        = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+accuracy  = (tp + tn) / n
+print(f"@ threshold 0.5:  acc={accuracy:.3f}  prec={precision:.3f}  rec={recall:.3f}  f1={f1:.3f}")
+
+# ROC sweep: sort by score descending, accumulate TP/FP rates.
+order = np.argsort(-scores)
+ys = y[order]
+P, N = ys.sum(), len(ys) - ys.sum()
+tpr = np.concatenate([[0], np.cumsum(ys) / P])
+fpr = np.concatenate([[0], np.cumsum(1 - ys) / N])
+
+# Trapezoidal AUC over exactly those points.
+auc_trap = np.sum((fpr[1:] - fpr[:-1]) * (tpr[1:] + tpr[:-1]) / 2)
+
+# Rank-based AUC (Mann-Whitney): mean rank of positives, normalised.
+ranks = np.argsort(np.argsort(scores)) + 1
+auc_rank = (ranks[y == 1].sum() - P * (P + 1) / 2) / (P * N)
+print(f"AUC trapezoid = {auc_trap:.4f}   AUC rank = {auc_rank:.4f}   (agree)")
+
+# Calibration: bin by predicted probability, compare to observed frequency.
+edges = np.linspace(0, 1, 11)
+b = np.clip(np.digitize(scores, edges) - 1, 0, 9)
+ece = 0.0
+for k in range(10):
+    m = b == k
+    if m.sum() == 0:
+        continue
+    ece += m.sum() / n * abs(scores[m].mean() - y[m].mean())
+print(f"ECE = {ece:.4f}  (small: these scores are calibrated by construction)")
+`}
+/>
+
+About thirty lines for the entire chapter. The ROC sweep is the only part
+with any subtlety — sort once, accumulate, and the curve falls out — and
+the two AUC computations agreeing is a good sanity check that you have the
+sweep right.
+
+## 11. Problems
+
+### Problem 1 — The 95% trap
+
+A model screens transactions for fraud. Fraud is 2% of all transactions.
+A colleague proudly reports their model achieves 98% accuracy. Before you
+see anything else, why should you be suspicious — and what single
+alternative model achieves exactly that accuracy while being useless? What
+two metrics would you ask for instead, and what would each tell you?
+
+<details>
+  <summary>Show solution</summary>
+
+The model that predicts "not fraud" for every transaction achieves exactly
+98% accuracy on a 2%-fraud dataset, by getting every one of the 98%
+negatives right and every one of the 2% positives wrong. It catches zero
+fraud. So 98% accuracy is precisely the score of a model that does
+nothing — your colleague's model has cleared a bar that the null model
+also clears, which tells you almost nothing.
+
+Ask for **recall** and **precision**. Recall answers the question the
+business actually cares about: of all the real fraud, what fraction did
+the model catch? (The do-nothing model has recall 0.) Precision answers:
+of the transactions it flagged, how many were really fraud? — which
+governs how much manual review the flags will cost. Accuracy hid both
+behind the easy negatives; on an imbalanced problem they are the metrics
+that carry the signal, which is why F1 or the precision-recall curve is
+the right headline here rather than accuracy.
+
+</details>
+
+### Problem 2 — Compute the confusion matrix and its metrics
+
+Given true labels and predicted scores, implement the confusion matrix at
+a threshold and the four metrics derived from it.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+y      = np.array([1, 0, 1, 1, 0, 0, 1, 0, 1, 0])
+scores = np.array([0.9, 0.3, 0.8, 0.4, 0.7, 0.2, 0.6, 0.5, 0.55, 0.1])
+
+def metrics_at(y, scores, t):
+    # Your code:
+    #   1. Predict positive where scores >= t.
+    #   2. Count tp, fp, fn, tn.
+    #   3. Return accuracy, precision, recall, f1 (guard divide-by-zero).
+    pass
+
+for t in [0.3, 0.5, 0.7]:
+    print(t, metrics_at(y, scores, t))
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+y      = np.array([1, 0, 1, 1, 0, 0, 1, 0, 1, 0])
+scores = np.array([0.9, 0.3, 0.8, 0.4, 0.7, 0.2, 0.6, 0.5, 0.55, 0.1])
+
+def metrics_at(y, scores, t):
+    pred = scores >= t
+    tp = int(np.sum(pred & (y == 1)))
+    fp = int(np.sum(pred & (y == 0)))
+    fn = int(np.sum(~pred & (y == 1)))
+    tn = int(np.sum(~pred & (y == 0)))
+    acc  = (tp + tn) / len(y)
+    prec = tp / (tp + fp) if tp + fp else 0.0
+    rec  = tp / (tp + fn) if tp + fn else 0.0
+    f1   = 2 * prec * rec / (prec + rec) if prec + rec else 0.0
+    return dict(acc=round(acc, 2), prec=round(prec, 2), rec=round(rec, 2), f1=round(f1, 2))
+
+for t in [0.3, 0.5, 0.7]:
+    print(t, metrics_at(y, scores, t))
+`}
+/>
+
+As the threshold rises from 0.3 to 0.7, recall falls (fewer positives are
+caught) while precision rises (those still flagged are more likely to be
+real). That opposing movement is the precision-recall trade-off in
+miniature — the same motion you dragged out in Figure 10.1.
+
+</details>
+
+### Problem 3 — Find the threshold that maximises F1
+
+There is no reason to assume 0.5 is the best threshold. Sweep a grid of
+thresholds, compute F1 at each, and report the one that maximises it.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(3)
+n = 500
+z = rng.normal(-0.4, 1.5, n)
+scores = 1 / (1 + np.exp(-z))
+y = (rng.random(n) < scores).astype(int)
+
+def f1_at(y, scores, t):
+    pred = scores >= t
+    tp = np.sum(pred & (y == 1))
+    fp = np.sum(pred & (y == 0))
+    fn = np.sum(~pred & (y == 1))
+    prec = tp / (tp + fp) if tp + fp else 0.0
+    rec  = tp / (tp + fn) if tp + fn else 0.0
+    return 2 * prec * rec / (prec + rec) if prec + rec else 0.0
+
+# Your code:
+#   Sweep t over np.linspace(0.05, 0.95, 19), compute F1 at each,
+#   and print the threshold with the highest F1 (and its F1).
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(3)
+n = 500
+z = rng.normal(-0.4, 1.5, n)
+scores = 1 / (1 + np.exp(-z))
+y = (rng.random(n) < scores).astype(int)
+
+def f1_at(y, scores, t):
+    pred = scores >= t
+    tp = np.sum(pred & (y == 1))
+    fp = np.sum(pred & (y == 0))
+    fn = np.sum(~pred & (y == 1))
+    prec = tp / (tp + fp) if tp + fp else 0.0
+    rec  = tp / (tp + fn) if tp + fn else 0.0
+    return 2 * prec * rec / (prec + rec) if prec + rec else 0.0
+
+ts = np.linspace(0.05, 0.95, 19)
+f1s = [f1_at(y, scores, t) for t in ts]
+best = int(np.argmax(f1s))
+print(f"best threshold = {ts[best]:.2f}  with F1 = {f1s[best]:.3f}")
+print(f"F1 at the default 0.5 = {f1_at(y, scores, 0.5):.3f}")
+`}
+/>
+
+Because the data leans negative (the latent mean is below zero, so
+positives are the minority), the F1-optimal threshold sits *below* 0.5:
+lowering it recovers recall on the scarce positives faster than it costs
+precision. Tuning the threshold to the metric you care about is free
+performance that the default 0.5 leaves on the table.
+
+</details>
+
+### Problem 4 — Compute AUC two ways
+
+AUC has two equivalent definitions: the trapezoidal area under the ROC
+curve, and the rank-based probability that a random positive outscores a
+random negative. Implement both and confirm they agree.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(5)
+n = 800
+z = rng.normal(0, 1.6, n)
+scores = 1 / (1 + np.exp(-z))
+y = (rng.random(n) < scores).astype(int)
+
+def auc_trapezoid(y, scores):
+    # Your code: sort by score descending, build TPR/FPR, trapezoidal area.
+    pass
+
+def auc_rank(y, scores):
+    # Your code: mean rank of positives, normalised (Mann-Whitney).
+    pass
+
+print(f"trapezoid = {auc_trapezoid(y, scores):.4f}")
+print(f"rank      = {auc_rank(y, scores):.4f}")
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(5)
+n = 800
+z = rng.normal(0, 1.6, n)
+scores = 1 / (1 + np.exp(-z))
+y = (rng.random(n) < scores).astype(int)
+
+def auc_trapezoid(y, scores):
+    order = np.argsort(-scores)
+    ys = y[order]
+    P, N = ys.sum(), len(ys) - ys.sum()
+    tpr = np.concatenate([[0], np.cumsum(ys) / P])
+    fpr = np.concatenate([[0], np.cumsum(1 - ys) / N])
+    return np.sum((fpr[1:] - fpr[:-1]) * (tpr[1:] + tpr[:-1]) / 2)
+
+def auc_rank(y, scores):
+    ranks = np.argsort(np.argsort(scores)) + 1
+    P = y.sum()
+    N = len(y) - P
+    return (ranks[y == 1].sum() - P * (P + 1) / 2) / (P * N)
+
+print(f"trapezoid = {auc_trapezoid(y, scores):.4f}")
+print(f"rank      = {auc_rank(y, scores):.4f}")
+`}
+/>
+
+The two agree to within floating-point noise. The equivalence is worth
+internalising: the area under the ROC *is* the probability that a random
+positive is scored above a random negative. That is why AUC is a measure
+of ranking quality and says nothing, on its own, about whether the scores
+are calibrated probabilities — which is the next problem.
+
+</details>
+
+### Problem 5 — Good ranking, bad probabilities
+
+Take a calibrated set of scores and pass them through a monotonic
+transform that pushes them toward 0 and 1. Show that the AUC is unchanged
+(the ranking is preserved) while the expected calibration error climbs
+sharply — the chapter's thesis, as code.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(9)
+n = 2000
+z = rng.normal(0, 1.8, n)
+scores = 1 / (1 + np.exp(-z))
+y = (rng.random(n) < scores).astype(int)
+
+def auc_rank(y, s):
+    ranks = np.argsort(np.argsort(s)) + 1
+    P = y.sum(); N = len(y) - P
+    return (ranks[y == 1].sum() - P * (P + 1) / 2) / (P * N)
+
+def ece(y, s, n_bins=10):
+    edges = np.linspace(0, 1, n_bins + 1)
+    b = np.clip(np.digitize(s, edges) - 1, 0, n_bins - 1)
+    e = 0.0
+    for k in range(n_bins):
+        m = b == k
+        if m.sum():
+            e += m.sum() / len(y) * abs(s[m].mean() - y[m].mean())
+    return e
+
+# Your code:
+#   1. Build overconfident scores: sigmoid(2.2 * logit(scores)).
+#      (logit(p) = log(p / (1 - p)); clip p away from 0 and 1 first.)
+#   2. Print AUC and ECE for both the original and overconfident scores.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(9)
+n = 2000
+z = rng.normal(0, 1.8, n)
+scores = 1 / (1 + np.exp(-z))
+y = (rng.random(n) < scores).astype(int)
+
+def auc_rank(y, s):
+    ranks = np.argsort(np.argsort(s)) + 1
+    P = y.sum(); N = len(y) - P
+    return (ranks[y == 1].sum() - P * (P + 1) / 2) / (P * N)
+
+def ece(y, s, n_bins=10):
+    edges = np.linspace(0, 1, n_bins + 1)
+    b = np.clip(np.digitize(s, edges) - 1, 0, n_bins - 1)
+    e = 0.0
+    for k in range(n_bins):
+        m = b == k
+        if m.sum():
+            e += m.sum() / len(y) * abs(s[m].mean() - y[m].mean())
+    return e
+
+p = np.clip(scores, 1e-6, 1 - 1e-6)
+logit = np.log(p / (1 - p))
+overconfident = 1 / (1 + np.exp(-2.2 * logit))   # monotonic: ranking preserved
+
+print(f"calibrated:    AUC = {auc_rank(y, scores):.4f}   ECE = {ece(y, scores):.4f}")
+print(f"overconfident: AUC = {auc_rank(y, overconfident):.4f}   ECE = {ece(y, overconfident):.4f}")
+`}
+/>
+
+The AUC is identical to four decimals — the transform is monotonic, so it
+cannot change the order of the scores, and AUC depends only on the order.
+The ECE, meanwhile, climbs several-fold: the overconfident scores cluster
+near 0 and 1, so a bin labelled "0.9" is full of examples that are
+positive only about 80% of the time. Same ranking, very different
+trustworthiness. If you ever use a model's output as a probability rather
+than just thresholding it into a class, this is the failure you have to
+measure — and a high AUC will not warn you about it.
+
+</details>
+
+---
+
+*Next: Chapter 11 — Cross-validation and tuning.* Every metric in this
+chapter was computed on one fixed dataset, which is its own kind of lie;
+the next chapter is about estimating performance on data the model has
+never seen, and choosing hyperparameters like Chapter 9's λ without
+fooling yourself.
