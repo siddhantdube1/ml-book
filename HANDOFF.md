@@ -63,7 +63,7 @@ Part VII  — Neural networks        (Ch 21-22)
 
 Each chapter is roughly 3,500 words of prose, 3 interactive visualizations, runnable Python, and 5 problems with collapsible solutions. The shipped chapters (18, 6, 7) establish the format and have proven it works across clustering, optimization, and classification — three distinct ML domains. Remaining chapters follow the same recipe.
 
-The author (Swaraj) is a Data Science Manager who is writing this both as a pedagogical project and a portfolio piece. The voice is opinionated, technical, beginner-friendly without being condescending. **Match the voice exactly** — see [section 4](#4-writing-voice--style) for verbatim examples.
+The author (Siddhant) is an AI researcher who is writing this both as a pedagogical project and a portfolio piece. The voice is opinionated, technical, beginner-friendly without being condescending. **Match the voice exactly** — see [section 4](#4-writing-voice--style) for verbatim examples.
 
 ---
 
@@ -1034,4 +1034,4 @@ The book builds. Chapter 7 builds on Chapter 6's GD. Chapter 8 will build on Cha
 
 ---
 
-*Last updated: end of Chapter 7 build session. Author: previous Claude conversation, working with Swaraj.*
+*Last updated: end of Chapter 7 build session. Author: previous Claude conversation, working with Siddhant.*

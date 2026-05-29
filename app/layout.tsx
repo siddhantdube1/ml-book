@@ -19,7 +19,7 @@ export const metadata: Metadata = {
   },
   description: SITE_DESCRIPTION,
   applicationName: SITE_NAME,
-  authors: [{ name: 'Swaraj' }],
+  authors: [{ name: 'Siddhant' }],
   keywords: [
     'machine learning',
     'interactive textbook',
