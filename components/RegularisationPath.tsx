@@ -50,9 +50,17 @@ function exponentChar(n: number): string {
   return map[n] ?? String(n)
 }
 
+// Defensive ceiling on the y-axis: standardised, stably-fit coefficients
+// stay within roughly ±5, so this never clips real data but guarantees a
+// single pathological solve can't blow the whole axis out to ±1e200.
+const Y_CEIL = 8
+
 export default function RegularisationPath() {
   const [kind, setKind] = useState<'L1' | 'L2'>('L1')
-  const [lambdaIdx, setLambdaIdx] = useState(22)
+  // Opens at exactly 3/6 nonzero under L1 — all three signal coefficients
+  // retained, all three noise coefficients zeroed: the cleanest snapshot
+  // of "L1 selects features".
+  const [lambdaIdx, setLambdaIdx] = useState(23)
 
   const data = useMemo(
     () =>
@@ -76,14 +84,29 @@ export default function RegularisationPath() {
     let mx = -Infinity
     for (const e of path) {
       for (const c of e.w) {
+        if (!Number.isFinite(c)) continue // never let a stray solve set the scale
         if (c < mn) mn = c
         if (c > mx) mx = c
       }
     }
+    if (!Number.isFinite(mn) || !Number.isFinite(mx)) {
+      mn = -1
+      mx = 1
+    }
+    // Clamp to a robust finite window as a final backstop.
+    mn = Math.max(mn, -Y_CEIL)
+    mx = Math.min(mx, Y_CEIL)
     const span = Math.max(0.2, mx - mn)
     const pad = span * 0.1
     return [mn - pad, mx + pad] as [number, number]
   }, [path])
+
+  // Clamp a coefficient into the visible window so a single bad value can
+  // never render a line shooting off the canvas.
+  const clampY = (v: number) => {
+    if (!Number.isFinite(v)) return yRange[0]
+    return Math.max(yRange[0], Math.min(yRange[1], v))
+  }
 
   const lx = (lam: number) => {
     const t =
@@ -102,7 +125,7 @@ export default function RegularisationPath() {
       const parts: string[] = []
       for (let i = 0; i < path.length; i++) {
         const x = lx(path[i].lambda)
-        const y = ly(path[i].w[f])
+        const y = ly(clampY(path[i].w[f]))
         parts.push(`${i === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`)
       }
       ps.push(parts.join(' '))
@@ -288,7 +311,7 @@ export default function RegularisationPath() {
             <circle
               key={f}
               cx={lx(currentLambda)}
-              cy={ly(c)}
+              cy={ly(clampY(c))}
               r={4}
               fill={FEATURE_COLORS[f]}
               stroke="var(--paper)"

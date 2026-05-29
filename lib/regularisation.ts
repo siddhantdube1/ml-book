@@ -330,6 +330,13 @@ function logisticLoss(samples: LRPoint[], w: number[], b: number): number {
  * Train logistic regression with an L2 penalty: minimise
  *   (1/n) Σ BCE(y_i, σ(w · x_i + b)) + λ ‖w‖².
  * The bias is unregularised. Warm-start by passing w0/b0.
+ *
+ * The L2 penalty adds a term 2λw to the gradient, so the per-step
+ * shrinkage factor is (1 − 2·lr·λ). With a fixed learning rate this
+ * overshoots and diverges once 2·lr·λ > 1 (large λ). We damp the step
+ * size by the penalty curvature — lrEff = lr / (1 + 2·lr·λ) — which keeps
+ * 2·lrEff·λ < 1 for every λ while leaving lrEff ≈ lr when λ is small.
+ * A divergence guard backs out any non-finite step as a final safety net.
  */
 export function trainLogisticL2(
   samples: LRPoint[],
@@ -341,8 +348,9 @@ export function trainLogisticL2(
 ): { w: number[]; b: number; loss: number } {
   const n = samples.length
   const p = samples[0].x.length
-  const w: number[] = w0 ? w0.slice() : new Array(p).fill(0)
+  let w: number[] = w0 ? w0.slice() : new Array(p).fill(0)
   let b: number = b0 ?? 0
+  const lrEff = lr / (1 + 2 * lambda * lr)
 
   for (let step = 0; step < maxSteps; step++) {
     const gw: number[] = new Array(p).fill(0)
@@ -353,10 +361,16 @@ export function trainLogisticL2(
       for (let j = 0; j < p; j++) gw[j] += err * s.x[j]
       gb += err
     }
-    for (let j = 0; j < p; j++) gw[j] = gw[j] / n + 2 * lambda * w[j]
-    gb /= n
-    for (let j = 0; j < p; j++) w[j] -= lr * gw[j]
-    b -= lr * gb
+    const wNext = new Array(p)
+    for (let j = 0; j < p; j++) {
+      wNext[j] = w[j] - lrEff * (gw[j] / n + 2 * lambda * w[j])
+    }
+    const bNext = b - lrEff * (gb / n)
+    if (!Number.isFinite(bNext) || wNext.some((v) => !Number.isFinite(v))) {
+      break // diverged — keep the last finite iterate
+    }
+    w = wNext
+    b = bNext
   }
   return { w, b, loss: logisticLoss(samples, w, b) }
 }
@@ -383,7 +397,7 @@ export function trainLogisticL1(
 ): { w: number[]; b: number; loss: number } {
   const n = samples.length
   const p = samples[0].x.length
-  const w: number[] = w0 ? w0.slice() : new Array(p).fill(0)
+  let w: number[] = w0 ? w0.slice() : new Array(p).fill(0)
   let b: number = b0 ?? 0
 
   for (let step = 0; step < maxSteps; step++) {
@@ -395,19 +409,52 @@ export function trainLogisticL1(
       for (let j = 0; j < p; j++) gw[j] += err * s.x[j]
       gb += err
     }
+    const wNext = new Array(p)
     for (let j = 0; j < p; j++) {
-      const w_grad_step = w[j] - lr * (gw[j] / n)
-      w[j] = softThreshold(w_grad_step, lr * lambda)
+      // Proximal step: gradient step on the smooth part, then prox of the
+      // L1 term (soft-thresholding). The prox never overshoots, so unlike
+      // L2 this stays stable at any λ — but guard non-finite anyway.
+      wNext[j] = softThreshold(w[j] - lr * (gw[j] / n), lr * lambda)
     }
-    b -= lr * (gb / n)
+    const bNext = b - lr * (gb / n)
+    if (!Number.isFinite(bNext) || wNext.some((v) => !Number.isFinite(v))) {
+      break
+    }
+    w = wNext
+    b = bNext
   }
   return { w, b, loss: logisticLoss(samples, w, b) }
+}
+
+/** Standardise each feature to zero mean and unit variance (per column). */
+export function standardiseFeatures(samples: LRPoint[]): LRPoint[] {
+  const n = samples.length
+  const p = samples[0].x.length
+  const mean = new Array(p).fill(0)
+  for (const s of samples) for (let j = 0; j < p; j++) mean[j] += s.x[j]
+  for (let j = 0; j < p; j++) mean[j] /= n
+  const std = new Array(p).fill(0)
+  for (const s of samples)
+    for (let j = 0; j < p; j++) std[j] += (s.x[j] - mean[j]) ** 2
+  for (let j = 0; j < p; j++) std[j] = Math.sqrt(std[j] / n) || 1
+  return samples.map((s) => ({
+    y: s.y,
+    x: s.x.map((v, j) => (v - mean[j]) / std[j]) as number[],
+  }))
 }
 
 /**
  * Compute the L1 or L2 regularisation path: train at a series of λ values
  * (log-spaced), warm-starting from the previous solution. Returns an
  * array of (λ, coefficients) entries with λ ascending.
+ *
+ * Two robustness measures, standard for ridge/lasso paths:
+ *  - Features are standardised so a single λ penalises every coefficient
+ *    on the same scale, and the solver stays well-conditioned.
+ *  - The path is traced from large λ down to small λ, warm-starting each
+ *    solve from the previous (more-regularised, smaller-weight) solution.
+ *    Starting from the heavily-shrunk end keeps the warm starts tame; the
+ *    result is reversed to ascending λ before returning.
  */
 export function regularisationPath(
   samples: LRPoint[],
@@ -415,18 +462,19 @@ export function regularisationPath(
   lambdas: number[],
   opts: { lr: number; stepsPerLambda: number },
 ): { lambda: number; w: number[]; b: number }[] {
-  const sorted = lambdas.slice().sort((a, b) => a - b)
+  const std = standardiseFeatures(samples)
+  const descending = lambdas.slice().sort((a, b) => b - a)
   const path: { lambda: number; w: number[]; b: number }[] = []
+  const train = kind === 'L1' ? trainLogisticL1 : trainLogisticL2
   let wPrev: number[] | undefined = undefined
   let bPrev = 0
-  for (const lam of sorted) {
-    const train = kind === 'L1' ? trainLogisticL1 : trainLogisticL2
-    const { w, b } = train(samples, lam, opts.lr, opts.stepsPerLambda, wPrev, bPrev)
+  for (const lam of descending) {
+    const { w, b } = train(std, lam, opts.lr, opts.stepsPerLambda, wPrev, bPrev)
     path.push({ lambda: lam, w: w.slice(), b })
     wPrev = w
     bPrev = b
   }
-  return path
+  return path.reverse()
 }
 
 /** Log-spaced grid of λ values from `lo` to `hi`, length `n`. */

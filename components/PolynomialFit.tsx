@@ -284,7 +284,7 @@ export default function PolynomialFit() {
 
       <figcaption className="font-sans text-sm text-ink-muted mt-4 text-center max-w-prose mx-auto">
         Figure 9.1 — Polynomial regression on 25 noisy samples (black) of a
-        smooth underlying curve (dashed). The orange line is the ridge-
+        smooth underlying curve (dashed). The teal line is the ridge
         regression fit at the chosen degree and λ. Crank the degree up with
         λ near zero to see overfitting take hold; crank λ up to watch
         regularisation pull the fit back toward the true curve.
