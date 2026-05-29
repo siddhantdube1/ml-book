@@ -123,15 +123,20 @@ export default function CalibrationDiagram() {
             strokeWidth={1}
             strokeDasharray="4,3"
           />
+          {/* label parallels the diagonal but sits in the lower-right
+              triangle (y < x), which stays empty for both the calibrated
+              curve (dots on the diagonal) and the overconfident one (its
+              right-half dots ride well above this point). */}
           <text
-            x={px(0.82)}
-            y={py(0.82) - 6}
+            x={px(0.62)}
+            y={py(0.4)}
             fontSize={10}
             fill="var(--ink-muted)"
             textAnchor="middle"
             fontStyle="italic"
+            transform={`rotate(-45 ${px(0.62).toFixed(1)} ${py(0.4).toFixed(1)})`}
           >
-            perfect
+            perfect calibration
           </text>
 
           {/* reliability curve */}
