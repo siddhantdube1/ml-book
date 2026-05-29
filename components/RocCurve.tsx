@@ -61,15 +61,24 @@ export default function RocCurve() {
   const px = (v: number) => PAD_L + v * PLOT
   const py = (v: number) => PAD_T + (1 - v) * PLOT
 
+  // PR curves carry a leading (recall=0, precision=1) anchor used only for
+  // the average-precision area. Dropping it from the *drawn* paths avoids a
+  // spurious segment from (0,1) across empty space to the first real point
+  // (which, under heavy imbalance, sits at the origin — the top-scored
+  // examples are false positives). ROC keeps its (0,0) anchor: that point
+  // is the genuine bottom-left start of the curve.
+  const prDrawn = useMemo(() => (pr.length > 1 ? pr.slice(1) : pr), [pr])
+
   const curvePath = useMemo(() => {
-    const pts =
-      view === 'ROC'
-        ? roc.map((p) => [p.fpr, p.tpr] as [number, number])
-        : pr.map((p) => [p.recall, p.precision] as [number, number])
-    return pts
-      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${px(p[0]).toFixed(2)} ${py(p[1]).toFixed(2)}`)
+    if (view === 'ROC') {
+      return roc
+        .map((p, i) => `${i === 0 ? 'M' : 'L'} ${px(p.fpr).toFixed(2)} ${py(p.tpr).toFixed(2)}`)
+        .join(' ')
+    }
+    return prDrawn
+      .map((p, i) => `${i === 0 ? 'M' : 'L'} ${px(p.recall).toFixed(2)} ${py(p.precision).toFixed(2)}`)
       .join(' ')
-  }, [view, roc, pr])
+  }, [view, roc, prDrawn])
 
   const fillPath = useMemo(() => {
     if (view === 'ROC') {
@@ -78,12 +87,14 @@ export default function RocCurve() {
         .join(' ')
       return `${head} L ${px(1).toFixed(2)} ${py(0).toFixed(2)} L ${px(0).toFixed(2)} ${py(0).toFixed(2)} Z`
     }
-    const head = pr
+    if (prDrawn.length === 0) return ''
+    const head = prDrawn
       .map((p, i) => `${i === 0 ? 'M' : 'L'} ${px(p.recall).toFixed(2)} ${py(p.precision).toFixed(2)}`)
       .join(' ')
-    const lastRecall = pr.length ? pr[pr.length - 1].recall : 0
-    return `${head} L ${px(lastRecall).toFixed(2)} ${py(0).toFixed(2)} L ${px(0).toFixed(2)} ${py(0).toFixed(2)} Z`
-  }, [view, roc, pr])
+    const firstRecall = prDrawn[0].recall
+    const lastRecall = prDrawn[prDrawn.length - 1].recall
+    return `${head} L ${px(lastRecall).toFixed(2)} ${py(0).toFixed(2)} L ${px(firstRecall).toFixed(2)} ${py(0).toFixed(2)} Z`
+  }, [view, roc, prDrawn])
 
   const xLabel = view === 'ROC' ? 'false positive rate' : 'recall'
   const yLabel = view === 'ROC' ? 'true positive rate' : 'precision'

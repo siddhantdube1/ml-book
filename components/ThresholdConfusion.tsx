@@ -222,16 +222,6 @@ export default function ThresholdConfusion() {
               {t.toFixed(2)}
             </text>
           ))}
-          <text
-            x={(PAD_X + W - PAD_X) / 2}
-            y={H - 4}
-            fontSize={11}
-            fill="var(--ink-muted)"
-            textAnchor="middle"
-            fontStyle="italic"
-          >
-            predicted score
-          </text>
 
           {/* threshold line + draggable handle */}
           <line
@@ -270,15 +260,16 @@ export default function ThresholdConfusion() {
               e.stopPropagation()
             }}
           />
+          {/* static axis legend: lower scores → predict 0, higher → predict 1 */}
           <text
-            x={tx}
-            y={H - PAD_BOT + 30}
-            fontSize={10}
-            fill="var(--ink)"
+            x={(PAD_X + W - PAD_X) / 2}
+            y={H - 4}
+            fontSize={11}
+            fill="var(--ink-muted)"
             textAnchor="middle"
-            fontFamily="var(--font-mono, monospace)"
+            fontFamily="var(--font-sans, sans-serif)"
           >
-            ← predict 0 | predict 1 →
+            ← predict 0 (lower score)      predict 1 (higher score) →
           </text>
         </svg>
       </div>
