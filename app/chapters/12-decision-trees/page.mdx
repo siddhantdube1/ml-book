@@ -1,0 +1,806 @@
+import SplitFinder from '@/components/SplitFinder'
+import TreeGrower from '@/components/TreeGrower'
+import DepthOverfit from '@/components/DepthOverfit'
+import RegressionTree from '@/components/RegressionTree'
+import PyodideEditor from '@/components/PyodideEditor'
+
+export const metadata = {
+  title: 'Decision trees',
+  description:
+    'A model that reaches a decision by asking one yes-or-no question at a time. Gini impurity, greedy recursive splitting, the rectangular partition of feature space, overfitting and the depth knob, and regression trees — with four interactive visualisations, runnable Python, and five problems.',
+  openGraph: {
+    title: 'Decision trees',
+    description:
+      'An interactive walk-through of decision trees — impurity, greedy splitting, the recursive partition, overfitting by depth, and regression trees.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 12 · Part IV — Tree-based models
+</p>
+
+# Decision trees
+
+*A model that reaches a decision by asking one yes-or-no question at a
+time — and carves the feature space into rectangles doing it.*
+
+A doctor in a busy emergency room does not fit a regression. She asks one
+question — is the patient short of breath? — and, depending on the answer,
+asks another, and then another, narrowing toward a diagnosis one
+yes-or-no at a time. A bank clerk weighing a loan, a botanist keying out a
+wildflower, the troubleshooting flowchart taped inside a photocopier: all
+of them reach a decision the same way, by walking down a branching
+sequence of simple questions. That branching structure is a *decision
+tree*, and it is among the most intuitive models in machine learning — you
+can print one on a single page and follow its reasoning by hand, no
+arithmetic required.
+
+This chapter builds decision trees from the ground up. We will see how a
+tree decides which question to ask first, how it grows itself greedily one
+split at a time, and how those questions carve the feature space into a
+patchwork of rectangles — a shape no linear model of the last six chapters
+could ever draw. We will also meet the tree's great weakness, the one the
+next two chapters exist to repair: left unchecked, a tree keeps asking
+questions until it has memorised the training set whole.
+
+By the end you will have grown a tree from scratch, watched it partition a
+plane, and used the cross-validation of Chapter 11 to stop it before it
+overfits.
+
+## 1. A model that asks questions
+
+Every model so far has computed a weighted sum. Logistic regression
+multiplies each feature by a weight, adds them up, and squashes the
+result; even the polynomials of Chapter 9 were linear combinations of
+powers. A decision tree throws all of that out. It makes no arithmetic
+combination of features at all. Instead it asks a question about *one*
+feature — *is $x_1$ less than 0.4?* — and branches. On each branch it asks
+another single-feature question, and another, until it reaches a *leaf*: a
+final answer.
+
+Concretely, a decision tree is a binary tree. Each internal node holds a
+test of the form "feature $j$ < threshold $t$". To classify a point, you
+start at the root, evaluate its test, go left if the answer is yes and
+right if no, and repeat at the node you land on. When you reach a leaf,
+you read off its stored prediction — the majority class of the training
+points that ended up there. That is the entire prediction algorithm: walk
+down, answering questions, until you run out of questions.
+
+The appeal is immediate. The model is *legible* — every prediction is a
+path of plain-language conditions you can audit. It needs no feature
+scaling, because a threshold test does not care whether $x_1$ is measured
+in metres or millimetres. And, as we will see, it can carve out shapes
+that no straight line can. The only hard part is the part the doctor's
+training supplied: knowing which question to ask, and in what order.
+
+## 2. Which question, and in what order?
+
+Suppose you have the training data and want to build the tree. The space
+of possibilities is enormous. At the root you could test any feature at
+any threshold; for each choice the two children face the same open-ended
+choice, and so on down. Even restricting to a modest depth, the number of
+distinct trees is astronomical, and it is a theorem that finding the
+*smallest* tree that classifies the data perfectly is NP-hard — there is
+no known way to search all trees efficiently, and almost certainly none
+exists.
+
+So we don't search all trees. We do something cruder and far faster: build
+the tree *greedily*, one node at a time, never reconsidering. At each node
+we ask a local question — *of all the single-feature threshold tests
+available right now, which one best separates the classes here?* — commit
+to the winner, and recurse into each child. The result is usually not the
+globally optimal tree. But it is cheap to compute and, in practice, good.
+
+This leaves one thing to pin down: what does "best separates the classes"
+mean, precisely? We need a number that scores a candidate split, so the
+algorithm can sweep every threshold and keep the highest-scoring one. That
+number is built from a notion of *impurity*.
+
+## 3. Greedy recursive splitting
+
+Here is the whole algorithm in three sentences. *Find the single split
+that best purifies the data. Apply it, dividing the points into a left
+group and a right group. Then call yourself on each group, and stop when a
+group is already pure or too small to bother with.* Everything else in
+this chapter is detail hung on that recursive skeleton.
+
+The recursion bottoms out — a node becomes a leaf rather than splitting
+further — when one of a few stopping conditions fires: the node is already
+pure (all one class, nothing left to separate), or it has too few points
+to split responsibly, or it has reached a maximum depth we imposed, or no
+available split improves things. At a leaf, the prediction is simply the
+majority class of the training points that arrived there.
+
+The one undefined term is "best purifies". To make the greedy choice, the
+algorithm needs to put a number on how mixed a group of labels is, so it
+can prefer splits that leave each side less mixed than the parent. Let's
+build that number.
+
+## 4. Measuring a split: Gini impurity
+
+The standard measure is *Gini impurity*. For a node whose points fall into
+classes with proportions $p_1, p_2, \ldots, p_K$, the Gini impurity is
+
+$$G = 1 - \sum_{c=1}^K p_c^2.$$
+
+It has an intuitive reading: $G$ is the probability that two points drawn
+at random from the node (with replacement) belong to *different* classes.
+A pure node — all one class — has $G = 0$: any two draws match. A node
+split evenly between two classes has $G = 1 - (0.5^2 + 0.5^2) = 0.5$: half
+the time two draws disagree. Impurity is highest when the classes are
+balanced and zero when the node is pure, exactly the behaviour we want
+from a measure of "mixedness".
+
+A split takes a parent node and divides it into a left child and a right
+child, with $n_L$ and $n_R$ points. We score it by how much it lowers
+impurity, weighting each child by its share of the points:
+
+$$\text{gain} = G_{\text{parent}} - \frac{n_L}{n}\,G_{\text{left}} - \frac{n_R}{n}\,G_{\text{right}}.$$
+
+This quantity — parent impurity minus the weighted impurity of the
+children — is the *information gain* of the split (a name that strictly
+belongs to the entropy version of impurity, $H = -\sum_c p_c \log p_c$,
+which behaves almost identically; Gini is the default because it needs no
+logarithms). The greedy algorithm computes the gain for every candidate
+threshold on every feature and keeps the single split of greatest gain.
+
+The widget below is that search, made tangible. Drag the split line, or
+switch which feature it cuts on, and watch the Gini impurity of each side
+and the resulting gain. The curve underneath plots the gain for every
+threshold; the algorithm simply walks to its peak.
+
+<SplitFinder />
+
+Two things to notice. First, a split that cleanly separates the classes
+sends both children's impurity toward zero and the gain toward its maximum
+— purity and gain move together. Second, the *feature* matters as much as
+the threshold: toggle between cutting on $x_1$ and $x_2$ and the best
+achievable gain changes. The greedy algorithm searches over both at once,
+and the winning split is the single best (feature, threshold) pair
+anywhere.
+
+## 5. Growing the tree: a partition into rectangles
+
+Apply that best split, then recurse, and a tree grows. Because every split
+is a threshold on a single feature — a vertical or horizontal line in two
+dimensions — the regions the tree carves out are always *axis-aligned
+rectangles*. The first split cuts the plane in two; each subsequent split
+cuts one of those pieces in two again; and the leaves tile the whole
+feature space with boxes, each box painted with its leaf's predicted
+class. A decision tree is a flowchart and a rectangular partition at the
+same time — the same object seen two ways.
+
+The widget below shows both views growing in lockstep. Press Play. Each
+step makes the single most valuable split: the tree on the right gains a
+node, and the feature space on the left gains one more axis-aligned cut,
+with the freshly divided region outlined in teal.
+
+<TreeGrower />
+
+Switch the dataset and the geometry tells the story:
+
+- On **moons**, the two classes are interleaved crescents that no straight
+  line can separate — the very dataset where logistic regression hit its
+  wall in Chapter 7. The tree carves them apart anyway, approximating the
+  curved boundary with a *staircase* of little axis-aligned steps. More
+  depth, finer steps, closer fit.
+- On **XOR** (the checkerboard), the classes sit in opposite corners — a
+  pattern with no linear structure whatsoever, hopeless for any single
+  hyperplane. The tree shreds it in a handful of splits, because nothing
+  stops a tree from changing which feature it cares about at each level.
+- On **blobs**, each split peels off a cluster, and the tree settles
+  quickly into a clean three-way partition.
+
+This is the geometric heart of the chapter. A linear model draws one
+boundary of a fixed shape; a tree assembles a boundary out of as many
+axis-aligned pieces as it needs. That flexibility is its strength — and,
+turned up too far, its downfall.
+
+## 6. Overfitting and the depth knob
+
+Nothing in the greedy algorithm knows when to stop. Left to run, it keeps
+splitting until every leaf is pure — and on data where no two points share
+a label-contradicting position, that means splitting until *every leaf
+holds a single training point*. Such a tree has 100% training accuracy and
+has learned nothing: it has memorised the training set, noise and all,
+carving the plane into one tiny island per point. It is the polynomial of
+degree fifteen all over again, in rectangular clothing.
+
+The brake is to limit the tree's complexity. The bluntest knob is
+*maximum depth* — refuse to split past a certain number of levels.
+Related knobs cap the minimum number of samples in a leaf, or refuse
+splits whose gain is below a threshold; a more principled method,
+*cost-complexity pruning*, grows the full tree and then snips back the
+branches that buy too little accuracy for their added leaves. Whatever the
+knob, the right setting is not something you can read off the training
+data — it is a hyperparameter, and you choose it the way Chapter 11 taught:
+by cross-validation.
+
+The widget makes the overfitting visible. Slide the maximum depth and
+watch both panels: on the left, the partition fragmenting into ever-finer
+islands; on the right, training accuracy (grey, dashed) marching toward
+100% while the cross-validated accuracy (teal) climbs to a peak at a
+modest depth and then *falls*.
+
+<DepthOverfit />
+
+Past that peak, every extra level of depth is the tree fitting noise that
+will not recur in fresh data — buying training accuracy at the cost of
+generalisation. The cross-validation curve has a maximum at a shallow
+depth, and that depth, not the deepest possible tree, is the one to ship.
+Cross-validation is doing for tree depth exactly what it did for Chapter
+9's $\lambda$: finding the complexity that generalises, while the training
+score lies.
+
+## 7. Regression trees
+
+Everything so far has predicted a class. The same machinery predicts a
+*number* with two small changes. First, impurity becomes *variance*: a
+node is "pure" when its targets are all close to the same value, so a good
+split is one that most reduces the total squared deviation of the two
+children from their means. Second, a leaf predicts not a majority class
+but the *mean* of the training targets that reached it. The result is a
+*regression tree*, and because each leaf outputs a single constant, its
+prediction across the input is a **step function** — piecewise constant,
+flat within each leaf's region, jumping at the splits.
+
+The widget fits a regression tree to the smooth curve from Chapter 9.
+
+<RegressionTree />
+
+At depth 0 the tree is a single leaf predicting the global mean — one flat
+line. Each extra level of depth doubles the available pieces and lets the
+staircase track the curve more closely. And exactly as with classification
+depth, push it too far and the test error turns back up: the steps have
+grown so narrow they are chasing individual noisy points rather than the
+underlying curve. A regression tree overfits the same way a classification
+tree does, and you tame it the same way.
+
+Regression trees matter beyond this chapter for a specific reason: they
+are the building block of *gradient boosting* (Chapter 14), where hundreds
+of shallow regression trees are stacked, each correcting the last. The
+humble step function is the atom of some of the most powerful models in
+applied machine learning.
+
+## 8. Practical concerns
+
+A few things worth knowing before you reach for a tree in earnest.
+
+**Interpretability.** A shallow tree is the most transparent model in this
+book. You can print it, read each decision in plain words, and explain any
+single prediction as the path it took. In domains where a model must
+justify itself — credit decisions, medical triage — this is worth a great
+deal, and it is why trees persist despite rarely being the most accurate
+option on their own.
+
+**Instability.** The flip side of greedy growth is fragility. Because the
+whole tree hangs from the first split, changing a handful of training
+points can flip that split and grow an entirely different tree below it.
+Trees are *high-variance* models in the language of Chapter 11 — they
+react strongly to the particular sample they were trained on. This
+single weakness is the reason the next two chapters exist.
+
+**No feature scaling.** Every model before this one cared about the scale
+of its inputs — gradient descent's step size, the reach of a
+regularisation penalty, all assumed comparable features. A tree is immune.
+A threshold test "is $x_j < t$" gives the same partition whether $x_j$ is
+in metres or millimetres, so standardisation, the chore of Chapters 9 and
+11, is simply unnecessary here. Trees also swallow categorical features and
+missing values with little fuss.
+
+**Greedy myopia.** The best split now is not always the split that leads to
+the best tree later. A greedy tree can be led astray by a locally
+attractive cut that forecloses a better global structure — the price we
+pay for not solving the NP-hard problem. Usually the price is small.
+
+## 9. Complexity
+
+**Building.** At each node the algorithm sorts the points along each
+feature to scan candidate thresholds — $O(n \log n)$ per feature, so
+$O(p\,n \log n)$ for $p$ features at one node. Summed over a balanced tree
+of depth $O(\log n)$, training costs roughly $O(p\,n \log^2 n)$. For the
+small problems here that is instantaneous; even on large datasets it is
+cheap by the standards of iterative optimisers.
+
+**Prediction.** A single point walks from root to leaf, one comparison per
+level: $O(\text{depth})$, which for a balanced tree is $O(\log n)$.
+Prediction is extremely fast, one of the reasons trees and their ensembles
+are popular in latency-sensitive systems.
+
+**Memory.** The model is the tree itself — one node per split plus the
+leaves, $O(\text{nodes})$. A depth-limited tree is tiny; an unpruned one
+on $n$ points can have up to $n$ leaves, another reason to prune.
+
+## 10. Implementing it yourself
+
+The whole classifier — Gini impurity, the best-split search, and the
+recursive builder — in about thirty-five lines of NumPy.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+# Three Gaussian blobs, three classes.
+rng = np.random.default_rng(0)
+n_per = 60
+centres = np.array([[-1.6, -0.8], [1.6, -0.8], [0.0, 1.5]])
+X = np.vstack([rng.normal(c, 0.55, (n_per, 2)) for c in centres])
+y = np.array([0] * n_per + [1] * n_per + [2] * n_per)
+
+def gini(y):
+    if len(y) == 0:
+        return 0.0
+    counts = np.bincount(y, minlength=3)
+    p = counts / len(y)
+    return 1.0 - np.sum(p ** 2)
+
+def best_split(X, y):
+    n, p = X.shape
+    parent = gini(y)
+    best = None  # (gain, feature, threshold)
+    for f in range(p):
+        order = np.argsort(X[:, f])
+        xs, ys = X[order, f], y[order]
+        for i in range(1, n):
+            if xs[i] == xs[i - 1]:
+                continue
+            w = (i / n) * gini(ys[:i]) + ((n - i) / n) * gini(ys[i:])
+            gain = parent - w
+            if best is None or gain > best[0]:
+                best = (gain, f, (xs[i] + xs[i - 1]) / 2)
+    return best
+
+class Node:
+    pass
+
+def build(X, y, depth, max_depth, min_leaf=2):
+    node = Node()
+    node.prediction = int(np.bincount(y, minlength=3).argmax())
+    if depth >= max_depth or len(y) < 2 * min_leaf or gini(y) == 0:
+        node.leaf = True
+        return node
+    s = best_split(X, y)
+    if s is None or s[0] <= 1e-12:
+        node.leaf = True
+        return node
+    _, f, t = s
+    node.leaf, node.feature, node.threshold = False, f, t
+    mask = X[:, f] < t
+    node.left = build(X[mask], y[mask], depth + 1, max_depth, min_leaf)
+    node.right = build(X[~mask], y[~mask], depth + 1, max_depth, min_leaf)
+    return node
+
+def predict_one(node, x):
+    while not node.leaf:
+        node = node.left if x[node.feature] < node.threshold else node.right
+    return node.prediction
+
+def accuracy(node, X, y):
+    return np.mean([predict_one(node, x) for x in X] == y)
+
+for d in [1, 2, 3, 4]:
+    tree = build(X, y, 0, max_depth=d)
+    print(f"max_depth={d}: training accuracy = {accuracy(tree, X, y):.3f}")
+`}
+/>
+
+Thirty-five lines for a working multi-class classifier — and the only
+genuinely tree-specific idea is the recursion in \`build\`. Depth 1 can
+only cut the plane once and underfits the three blobs; depth 2 already
+separates them cleanly. Everything that follows in Part IV is built from
+exactly this.
+
+## 11. Problems
+
+### Problem 1 — Greedy is not optimal, and unconstrained is not honest
+
+Two conceptual questions. (a) The greedy algorithm picks the single
+highest-gain split at each node and never reconsiders. Give an intuition
+for why this can fail to produce the *smallest* or *most accurate*
+possible tree. (b) Argue that, with no depth limit and no minimum leaf
+size, a decision tree can almost always reach 100% accuracy on its
+training set — and explain why that number is meaningless.
+
+<details>
+  <summary>Show solution</summary>
+
+**(a)** Greedy growth is *myopic*: it optimises the split in front of it,
+blind to what that split forecloses below. A cut that looks best right now
+can divide the data in a way that forces clumsy, low-gain splits at the
+next level, when a slightly worse cut now would have set up two clean cuts
+later. Classic XOR is the textbook case: at the root, *neither* feature
+alone reduces impurity at the centre (each half is still 50/50), so the
+greedy criterion is nearly blind to the split that — after one more level —
+separates the data perfectly. Finding the genuinely smallest perfect tree
+is NP-hard; greedy trades optimality for speed.
+
+**(b)** Keep splitting and every leaf eventually contains a single training
+point (or a group of identically-placed points), which is by definition
+pure — so training accuracy reaches 100%. But a tree with one leaf per
+point has simply stored the training set; it has captured every quirk of
+the noise and learned nothing that transfers. Its training accuracy
+measures memorisation, not generalisation — which is precisely why depth
+must be chosen by cross-validation (Problem 5), not by maximising the
+training score.
+
+</details>
+
+### Problem 2 — Implement Gini impurity
+
+Implement Gini impurity from a set of integer labels, and check it against
+the values the chapter quoted: 0 for a pure node, 0.5 for an even
+two-class split.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def gini(y):
+    # y is an array of integer class labels. Return 1 - sum(p_c^2).
+    # Your code:
+    pass
+
+print(gini(np.array([1, 1, 1, 1])))        # pure -> 0.0
+print(gini(np.array([0, 0, 1, 1])))        # even 2-class -> 0.5
+print(round(gini(np.array([0, 1, 2])), 3)) # even 3-class -> 0.667
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def gini(y):
+    if len(y) == 0:
+        return 0.0
+    _, counts = np.unique(y, return_counts=True)
+    p = counts / len(y)
+    return 1.0 - np.sum(p ** 2)
+
+print(gini(np.array([1, 1, 1, 1])))
+print(gini(np.array([0, 0, 1, 1])))
+print(round(gini(np.array([0, 1, 2])), 3))
+`}
+/>
+
+The even three-class node has $G = 1 - 3 \times (1/3)^2 = 1 - 1/3 =
+0.667$ — purer than a perfectly even two-class node would be impure,
+because with more classes any two random draws are more likely to differ.
+Gini rises toward $1 - 1/K$ as the $K$ classes even out, and is zero
+exactly when one class holds every point.
+
+</details>
+
+### Problem 3 — Implement the best-split search
+
+Given a 2-D dataset, sweep every threshold on every feature and return the
+split of greatest information gain. Use your \`gini\` from Problem 2.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+X = np.vstack([rng.normal([-1, 0], 0.5, (30, 2)),
+               rng.normal([1, 0], 0.5, (30, 2))])
+y = np.array([0] * 30 + [1] * 30)
+
+def gini(y):
+    if len(y) == 0: return 0.0
+    _, c = np.unique(y, return_counts=True)
+    p = c / len(y)
+    return 1.0 - np.sum(p ** 2)
+
+def best_split(X, y):
+    # Sweep midpoints of sorted values on each feature; return
+    # (gain, feature, threshold) of greatest gain. Your code:
+    pass
+
+print(best_split(X, y))   # should split on feature 0 near x = 0
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+X = np.vstack([rng.normal([-1, 0], 0.5, (30, 2)),
+               rng.normal([1, 0], 0.5, (30, 2))])
+y = np.array([0] * 30 + [1] * 30)
+
+def gini(y):
+    if len(y) == 0: return 0.0
+    _, c = np.unique(y, return_counts=True)
+    p = c / len(y)
+    return 1.0 - np.sum(p ** 2)
+
+def best_split(X, y):
+    n, p = X.shape
+    parent = gini(y)
+    best = None
+    for f in range(p):
+        order = np.argsort(X[:, f])
+        xs, ys = X[order, f], y[order]
+        for i in range(1, n):
+            if xs[i] == xs[i - 1]:
+                continue
+            w = (i / n) * gini(ys[:i]) + ((n - i) / n) * gini(ys[i:])
+            gain = parent - w
+            if best is None or gain > best[0]:
+                best = (gain, f, (xs[i] + xs[i - 1]) / 2)
+    return best
+
+gain, f, t = best_split(X, y)
+print(f"split on feature {f} at x = {t:.3f}, gain = {gain:.3f}")
+`}
+/>
+
+The two blobs are separated along feature 0 (centred at $-1$ and $+1$)
+and overlap completely on feature 1, so the search picks feature 0 with a
+threshold near zero and a large gain. Sorting once per feature and scanning
+midpoints between distinct values is exactly what a real implementation
+does — the only refinement libraries add is updating the child counts
+incrementally instead of recomputing \`gini\` from scratch at every
+threshold.
+
+</details>
+
+### Problem 4 — Build a tree and predict
+
+Combine Problems 2 and 3 into a recursive, depth-limited builder, and
+report training accuracy at several depths on the three-blob data.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+n_per = 50
+centres = np.array([[-1.6, -0.8], [1.6, -0.8], [0.0, 1.5]])
+X = np.vstack([rng.normal(c, 0.55, (n_per, 2)) for c in centres])
+y = np.array([0] * n_per + [1] * n_per + [2] * n_per)
+
+def gini(y):
+    if len(y) == 0: return 0.0
+    c = np.bincount(y, minlength=3); p = c / len(y)
+    return 1.0 - np.sum(p ** 2)
+
+def best_split(X, y):
+    n, p = X.shape; parent = gini(y); best = None
+    for f in range(p):
+        order = np.argsort(X[:, f]); xs, ys = X[order, f], y[order]
+        for i in range(1, n):
+            if xs[i] == xs[i - 1]: continue
+            w = (i / n) * gini(ys[:i]) + ((n - i) / n) * gini(ys[i:])
+            g = parent - w
+            if best is None or g > best[0]:
+                best = (g, f, (xs[i] + xs[i - 1]) / 2)
+    return best
+
+class Node: pass
+
+# Your code: write build(X, y, depth, max_depth) and predict_one(node, x),
+# then print training accuracy for max_depth in [1, 2, 3].
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+n_per = 50
+centres = np.array([[-1.6, -0.8], [1.6, -0.8], [0.0, 1.5]])
+X = np.vstack([rng.normal(c, 0.55, (n_per, 2)) for c in centres])
+y = np.array([0] * n_per + [1] * n_per + [2] * n_per)
+
+def gini(y):
+    if len(y) == 0: return 0.0
+    c = np.bincount(y, minlength=3); p = c / len(y)
+    return 1.0 - np.sum(p ** 2)
+
+def best_split(X, y):
+    n, p = X.shape; parent = gini(y); best = None
+    for f in range(p):
+        order = np.argsort(X[:, f]); xs, ys = X[order, f], y[order]
+        for i in range(1, n):
+            if xs[i] == xs[i - 1]: continue
+            w = (i / n) * gini(ys[:i]) + ((n - i) / n) * gini(ys[i:])
+            g = parent - w
+            if best is None or g > best[0]:
+                best = (g, f, (xs[i] + xs[i - 1]) / 2)
+    return best
+
+class Node: pass
+
+def build(X, y, depth, max_depth, min_leaf=2):
+    node = Node(); node.prediction = int(np.bincount(y, minlength=3).argmax())
+    if depth >= max_depth or len(y) < 2 * min_leaf or gini(y) == 0:
+        node.leaf = True; return node
+    s = best_split(X, y)
+    if s is None or s[0] <= 1e-12:
+        node.leaf = True; return node
+    _, f, t = s
+    node.leaf, node.feature, node.threshold = False, f, t
+    m = X[:, f] < t
+    node.left = build(X[m], y[m], depth + 1, max_depth, min_leaf)
+    node.right = build(X[~m], y[~m], depth + 1, max_depth, min_leaf)
+    return node
+
+def predict_one(node, x):
+    while not node.leaf:
+        node = node.left if x[node.feature] < node.threshold else node.right
+    return node.prediction
+
+for d in [1, 2, 3]:
+    t = build(X, y, 0, d)
+    acc = np.mean([predict_one(t, x) for x in X] == y)
+    print(f"max_depth={d}: train accuracy = {acc:.3f}")
+`}
+/>
+
+Depth 1 manages a single cut and tops out around two-thirds accuracy — it
+can separate one blob but must lump the other two together. Depth 2 has
+enough cuts to isolate all three and jumps to near-perfect. The recursion
+is the whole trick: \`build\` calls itself on each side of the chosen
+split, and the stopping conditions keep it from running away.
+
+</details>
+
+### Problem 5 — Choose the depth with cross-validation
+
+A tree's depth is a hyperparameter, and Chapter 11 told us how to set one:
+cross-validation. On a noisy dataset, sweep \`max_depth\`, score each by
+5-fold cross-validation, and watch the training accuracy and the
+cross-validated accuracy part ways.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+# A noisy XOR-like problem: class = sign(x0 * x1), with 12% of labels flipped.
+rng = np.random.default_rng(1)
+n = 200
+X = rng.normal(size=(n, 2))
+y = (X[:, 0] * X[:, 1] > 0).astype(int)
+y = np.where(rng.random(n) < 0.12, 1 - y, y)
+
+def gini(y):
+    if len(y) == 0: return 0.0
+    c = np.bincount(y, minlength=2); p = c / len(y)
+    return 1.0 - np.sum(p ** 2)
+
+def best_split(X, y):
+    n, p = X.shape; parent = gini(y); best = None
+    for f in range(p):
+        order = np.argsort(X[:, f]); xs, ys = X[order, f], y[order]
+        for i in range(1, n):
+            if xs[i] == xs[i - 1]: continue
+            w = (i / n) * gini(ys[:i]) + ((n - i) / n) * gini(ys[i:])
+            g = parent - w
+            if best is None or g > best[0]:
+                best = (g, f, (xs[i] + xs[i - 1]) / 2)
+    return best
+
+class Node: pass
+def build(X, y, depth, max_depth, min_leaf=2):
+    node = Node(); node.prediction = int(np.bincount(y, minlength=2).argmax())
+    if depth >= max_depth or len(y) < 2 * min_leaf or gini(y) == 0:
+        node.leaf = True; return node
+    s = best_split(X, y)
+    if s is None or s[0] <= 1e-12:
+        node.leaf = True; return node
+    _, f, t = s
+    node.leaf, node.feature, node.threshold = False, f, t
+    m = X[:, f] < t
+    node.left = build(X[m], y[m], depth + 1, max_depth, min_leaf)
+    node.right = build(X[~m], y[~m], depth + 1, max_depth, min_leaf)
+    return node
+def predict_one(node, x):
+    while not node.leaf:
+        node = node.left if x[node.feature] < node.threshold else node.right
+    return node.prediction
+def acc(node, X, y):
+    return np.mean([predict_one(node, x) for x in X] == y)
+
+# Your code:
+#   1. k_fold_indices(n, k, seed) -> list of index arrays (see Chapter 11).
+#   2. For max_depth in 1..8: full-data training accuracy, and 5-fold CV accuracy.
+#   3. Print both columns and the CV-best depth.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(1)
+n = 200
+X = rng.normal(size=(n, 2))
+y = (X[:, 0] * X[:, 1] > 0).astype(int)
+y = np.where(rng.random(n) < 0.12, 1 - y, y)
+
+def gini(y):
+    if len(y) == 0: return 0.0
+    c = np.bincount(y, minlength=2); p = c / len(y)
+    return 1.0 - np.sum(p ** 2)
+def best_split(X, y):
+    n, p = X.shape; parent = gini(y); best = None
+    for f in range(p):
+        order = np.argsort(X[:, f]); xs, ys = X[order, f], y[order]
+        for i in range(1, n):
+            if xs[i] == xs[i - 1]: continue
+            w = (i / n) * gini(ys[:i]) + ((n - i) / n) * gini(ys[i:])
+            g = parent - w
+            if best is None or g > best[0]:
+                best = (g, f, (xs[i] + xs[i - 1]) / 2)
+    return best
+class Node: pass
+def build(X, y, depth, max_depth, min_leaf=2):
+    node = Node(); node.prediction = int(np.bincount(y, minlength=2).argmax())
+    if depth >= max_depth or len(y) < 2 * min_leaf or gini(y) == 0:
+        node.leaf = True; return node
+    s = best_split(X, y)
+    if s is None or s[0] <= 1e-12:
+        node.leaf = True; return node
+    _, f, t = s
+    node.leaf, node.feature, node.threshold = False, f, t
+    m = X[:, f] < t
+    node.left = build(X[m], y[m], depth + 1, max_depth, min_leaf)
+    node.right = build(X[~m], y[~m], depth + 1, max_depth, min_leaf)
+    return node
+def predict_one(node, x):
+    while not node.leaf:
+        node = node.left if x[node.feature] < node.threshold else node.right
+    return node.prediction
+def acc(node, X, y):
+    return np.mean([predict_one(node, x) for x in X] == y)
+
+def k_fold_indices(n, k, seed=0):
+    return list(np.array_split(np.random.default_rng(seed).permutation(n), k))
+
+def cv_acc(X, y, max_depth, k=5):
+    folds = k_fold_indices(len(y), k, 0); scores = []
+    for i in range(k):
+        te = folds[i]
+        tr = np.concatenate([folds[j] for j in range(k) if j != i])
+        t = build(X[tr], y[tr], 0, max_depth)
+        scores.append(acc(t, X[te], y[te]))
+    return np.mean(scores)
+
+print(f"{'depth':>6s}  {'train':>6s}  {'CV':>6s}")
+best_d, best_cv = 1, -1.0
+for d in range(1, 9):
+    tr = acc(build(X, y, 0, d), X, y)
+    cv = cv_acc(X, y, d)
+    print(f"{d:>6d}  {tr:>6.3f}  {cv:>6.3f}")
+    if cv > best_cv:
+        best_cv, best_d = cv, d
+print(f"\\nCV-best depth: {best_d}  (CV accuracy {best_cv:.3f})")
+`}
+/>
+
+Training accuracy climbs monotonically toward 1.0 — deeper trees always fit
+the training set better, including the 12% of labels that were flipped at
+random. The cross-validated accuracy tells the truth: it rises to a peak
+at a shallow depth (around 3, where the tree has captured the real XOR
+structure) and then *declines*, because every extra level past that is
+memorising flipped labels that the held-out folds do not share. The gap
+between the two curves is the overfitting, and cross-validation — the tool
+of Chapter 11 — is what locates the depth worth shipping. A tree without
+this brake will always tell you it is perfect.
+
+</details>
+
+---
+
+*Next: Chapter 13 — Random forests.* A single tree is interpretable but
+unstable; the next chapter grows hundreds of them, each on a slightly
+different sample of the data and the features, and lets them vote — turning
+the tree's greatest weakness into one of the most dependable models in all
+of machine learning.
