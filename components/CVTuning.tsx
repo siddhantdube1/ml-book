@@ -155,9 +155,22 @@ export default function CVTuning() {
             strokeDasharray="3,3"
             opacity={0.6}
           />
-          <text x={lx(lambdas[bestIdx])} y={PAD_T - 4} fontSize={10} fill="var(--accent)" textAnchor="middle" fontFamily="var(--font-mono, monospace)">
-            best λ
-          </text>
+          {(() => {
+            const mx = lx(lambdas[bestIdx])
+            const nearLeft = mx < PAD_L + 26
+            return (
+              <text
+                x={nearLeft ? mx + 3 : mx}
+                y={PAD_T - 4}
+                fontSize={10}
+                fill="var(--accent)"
+                textAnchor={nearLeft ? 'start' : 'middle'}
+                fontFamily="var(--font-mono, monospace)"
+              >
+                best λ
+              </text>
+            )
+          })()}
 
           {/* training accuracy overlay */}
           {showTrain && (
@@ -199,7 +212,15 @@ export default function CVTuning() {
           <text x={(PAD_L + W - PAD_R) / 2} y={H - 6} fontSize={11} fill="var(--ink-muted)" textAnchor="middle" fontStyle="italic">
             regularisation strength λ
           </text>
-          <text x={PAD_L} y={PAD_T - 8} fontSize={11} fill="var(--ink-muted)" fontStyle="italic">
+          <text
+            x={14}
+            y={(PAD_T + (H - PAD_B)) / 2}
+            fontSize={11}
+            fill="var(--ink-muted)"
+            textAnchor="middle"
+            fontStyle="italic"
+            transform={`rotate(-90 14 ${(PAD_T + (H - PAD_B)) / 2})`}
+          >
             accuracy
           </text>
 
@@ -232,11 +253,14 @@ export default function CVTuning() {
       <figcaption className="font-sans text-sm text-ink-muted mt-4 text-center max-w-prose mx-auto">
         Figure 11.3 — Choosing λ for L2 logistic regression by k-fold
         cross-validation, on data with three signal features buried among
-        twenty noise features. Training accuracy (grey, dashed) rises toward a
+        twenty noise features. Training accuracy (grey, dashed) climbs to a
         perfect score as λ → 0 — the model memorising the noise. The
-        cross-validated accuracy (teal, with per-fold error bars) tells the
-        truth: it peaks at a non-zero λ and falls off on both sides. The dial
-        the training score would choose (λ = 0) is exactly the wrong one.
+        cross-validated accuracy (teal, with per-fold error bars) refuses to
+        follow: held out, λ → 0 is no better than a little regularisation —
+        the gap between the two curves is the overfitting the training score
+        cannot see — and accuracy collapses once λ grows large enough to
+        crush the real signal too. Cross-validation, not the training score,
+        is what locates a sensible λ.
       </figcaption>
     </figure>
   )

@@ -178,13 +178,14 @@ treacherous dataset: three real signal features buried among twenty pure
 noise features. **Training accuracy** (grey, dashed) does what training
 error always does — it climbs toward a perfect score as λ → 0, the model
 gleefully memorising the noise features. The **cross-validated accuracy**
-(teal, with one error bar per fold showing the spread) tells the truth:
-it rises as a little regularisation suppresses the noise features, peaks
-at a non-zero λ, then collapses as too much regularisation starts crushing
-the real signal too. The setting the training score would pick — λ = 0,
-maximum flexibility — is precisely the worst end of the curve. The
-cross-validated peak is the λ you actually want, and you found it without
-ever touching a test set.
+(teal, with one error bar per fold showing the spread) refuses to go
+along: held out, the model is no better at λ → 0 than with a modest dose
+of regularisation — the gap between the two curves at the left edge is
+exactly the overfitting the training score cannot see — and it falls away
+once λ grows large enough to crush the real signal too. Left to itself the
+training score would crank λ to zero and declare victory; cross-validation
+tells you the honest best λ is a modest non-zero value, and it found it
+without ever touching a test set.
 
 This is the standard recipe, called *grid search*: enumerate candidate
 hyperparameter values, cross-validate each, keep the best. When there are
