@@ -168,7 +168,7 @@ export default function TreeGrower() {
 
   const slotSpacing = leaves <= 1 ? TW : (TW - 2 * T_PAD_X) / Math.max(leaves - 1, 1)
   const boxW = Math.max(16, Math.min(50, slotSpacing * 0.92))
-  const showText = boxW > 32
+  const showText = boxW > 36
 
   return (
     <figure className="my-10">
@@ -233,12 +233,23 @@ export default function TreeGrower() {
                   </g>
                 )
               }
-              const cond = `x${SUB[l.node.feature]}<${l.node.threshold.toFixed(1)}`
+              const tStr = l.node.threshold.toFixed(1)
+              const cond = `x${SUB[l.node.feature]}<${tStr === '-0.0' ? '0.0' : tStr}`
               return (
                 <g key={`n${l.path}`}>
                   <rect x={p.x - boxW / 2} y={p.y - 9} width={boxW} height={18} rx={3} fill="var(--paper)" stroke={justSplit ? 'var(--accent)' : 'var(--rule)'} strokeWidth={justSplit ? 2 : 1} />
                   {showText && (
-                    <text x={p.x} y={p.y + 3} fontSize={9} fill="var(--ink)" textAnchor="middle" fontFamily="var(--font-mono, monospace)">{cond}</text>
+                    <text
+                      x={p.x}
+                      y={p.y + 3}
+                      fontSize={9}
+                      fill="var(--ink)"
+                      textAnchor="middle"
+                      fontFamily="var(--font-mono, monospace)"
+                      style={{ fontFeatureSettings: '"liga" 0, "calt" 0', fontVariantLigatures: 'none' }}
+                    >
+                      {cond}
+                    </text>
                   )}
                 </g>
               )
