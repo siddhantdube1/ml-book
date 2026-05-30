@@ -173,11 +173,14 @@ export default function KFoldCV() {
             CV mean {mean.toFixed(3)}
           </text>
 
-          {/* per-fold score dots */}
+          {/* per-fold score dots — folds with the same accuracy stack
+              vertically so every one of the k dots stays visible */}
           {foldScores.map((s, f) => {
             const held = f === foldIdx
-            // stagger vertically a little so coincident scores don't fully overlap
-            const yy = AX_Y - 16 - (f % 3) * 12
+            let stack = 0
+            for (let g = 0; g < f; g++)
+              if (Math.abs(foldScores[g] - s) < 0.005) stack++
+            const yy = AX_Y - 14 - stack * 12
             return (
               <circle
                 key={f}

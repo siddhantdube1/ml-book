@@ -173,19 +173,19 @@ held-out score.
 
 <CVTuning />
 
-The widget sweeps λ for an L2 logistic regression on a deliberately
-treacherous dataset: three real signal features buried among twenty pure
-noise features. **Training accuracy** (grey, dashed) does what training
-error always does — it climbs toward a perfect score as λ → 0, the model
-gleefully memorising the noise features. The **cross-validated accuracy**
-(teal, with one error bar per fold showing the spread) refuses to go
-along: held out, the model is no better at λ → 0 than with a modest dose
-of regularisation — the gap between the two curves at the left edge is
-exactly the overfitting the training score cannot see — and it falls away
-once λ grows large enough to crush the real signal too. Left to itself the
-training score would crank λ to zero and declare victory; cross-validation
-tells you the honest best λ is a modest non-zero value, and it found it
-without ever touching a test set.
+The widget returns to Figure 11.1's overfitting-prone fit — a degree-12
+polynomial — but instead of tuning its *degree* it now tunes its *ridge
+penalty* λ, exactly the knob Chapter 9 left for us to set. **Training
+error** (grey, dashed) does what training error always does: it sinks
+toward zero as λ → 0, the unregularised polynomial free to wriggle through
+every point. The **cross-validated error** (teal, with one error bar per
+fold showing the spread) traces a clean U. It is worst at λ → 0, where the
+fit overfits the noise, and worst again at large λ, where so much penalty
+is applied that the polynomial can no longer follow the real curve; in
+between it bottoms out at a non-trivial λ. The training error would send λ
+straight to zero and call it optimal; cross-validation finds the bottom of
+the U — the λ that genuinely generalises — without ever touching a test
+set.
 
 This is the standard recipe, called *grid search*: enumerate candidate
 hyperparameter values, cross-validate each, keep the best. When there are

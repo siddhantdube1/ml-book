@@ -2,95 +2,97 @@
 
 import { useMemo, useState } from 'react'
 import {
-  makeSparseDataset,
-  trainLogisticL2,
-  logspace,
-  type LRPoint,
+  makeNoisyScatter,
+  polyFeatures,
+  ridgeRegression,
+  evalPoly,
 } from '@/lib/regularisation'
 import { kFoldSplit } from '@/lib/crossval'
-import { sigmoid } from '@/lib/logistic'
 
 const W = 640
 const H = 380
-const PAD_L = 48
+const PAD_L = 50
 const PAD_R = 20
 const PAD_T = 24
 const PAD_B = 46
-const Y_MIN = 0.25
-const Y_MAX = 1.0
 
 const N = 60
+const DEGREE = 12
 const N_LAMBDA = 15
-const LMIN = 1e-3
-const LMAX = 3
-const STEPS = 200
+const LMIN = 1e-5
+const LMAX = 1
 
 const CV_COLOR = 'var(--accent)'
 const TRAIN_COLOR = 'var(--ink-muted)'
 
-function accuracyOf(model: { w: number[]; b: number }, pts: LRPoint[]): number {
-  let c = 0
-  for (const s of pts) {
-    let z = model.b
-    for (let j = 0; j < model.w.length; j++) z += model.w[j] * s.x[j]
-    if ((sigmoid(z) >= 0.5 ? 1 : 0) === s.y) c++
+const SUP: Record<string, string> = {
+  '-': '⁻', '0': '⁰', '1': '¹', '2': '²', '3': '³',
+  '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
+}
+const sup = (n: number) =>
+  String(n)
+    .split('')
+    .map((c) => SUP[c] ?? c)
+    .join('')
+
+function mse(w: number[], xs: number[], ys: number[]): number {
+  let s = 0
+  for (let i = 0; i < xs.length; i++) {
+    const e = evalPoly(w, xs[i]) - ys[i]
+    s += e * e
   }
-  return c / pts.length
+  return s / xs.length
 }
 
 export default function CVTuning() {
   const [k, setK] = useState(5)
   const [showTrain, setShowTrain] = useState(true)
 
-  const data = useMemo(
-    () => makeSparseDataset(N, 3, 20, [1.8, -1.4, 1.0], 7, 0.5),
-    [],
-  )
-  const lambdas = useMemo(() => logspace(LMIN, LMAX, N_LAMBDA), [])
+  const data = useMemo(() => makeNoisyScatter(N, 3, 0.18), [])
+  const lambdas = useMemo(() => {
+    const out: number[] = []
+    const lo = Math.log10(LMIN)
+    const hi = Math.log10(LMAX)
+    for (let i = 0; i < N_LAMBDA; i++)
+      out.push(Math.pow(10, lo + (i / (N_LAMBDA - 1)) * (hi - lo)))
+    return out
+  }, [])
 
-  const { cvMean, cvStd, trainAcc, bestIdx } = useMemo(() => {
+  const { cvMean, cvStd, trainErr, bestIdx, yMax } = useMemo(() => {
     const folds = kFoldSplit(N, k, 1)
-    const desc = lambdas.slice().sort((a, b) => b - a)
-    // CV: per fold, warm-start descending λ (large → small) for stable,
-    // well-converged fits at small λ — the same trick the regularisation-path
-    // widget uses.
-    const perFold: Map<number, number[]> = new Map(lambdas.map((l) => [l, []]))
-    for (const fold of folds) {
-      const train = fold.trainIdx.map((i) => data[i])
-      const test = fold.testIdx.map((i) => data[i])
-      let wPrev: number[] | undefined
-      let bPrev = 0
-      for (const lam of desc) {
-        const m = trainLogisticL2(train, lam, 0.4, STEPS, wPrev, bPrev)
-        wPrev = m.w
-        bPrev = m.b
-        perFold.get(lam)!.push(accuracyOf(m, test))
-      }
-    }
     const cvMean: number[] = []
     const cvStd: number[] = []
     for (const lam of lambdas) {
-      const xs = perFold.get(lam)!
-      const m = xs.reduce((a, b) => a + b, 0) / xs.length
+      const fold = folds.map((f) => {
+        const tx = f.trainIdx.map((i) => data[i].x)
+        const ty = f.trainIdx.map((i) => data[i].y)
+        const ex = f.testIdx.map((i) => data[i].x)
+        const ey = f.testIdx.map((i) => data[i].y)
+        const w = ridgeRegression(polyFeatures(tx, DEGREE), ty, lam)
+        return mse(w, ex, ey)
+      })
+      const m = fold.reduce((a, b) => a + b, 0) / fold.length
       const sd = Math.sqrt(
-        xs.reduce((a, b) => a + (b - m) * (b - m), 0) / xs.length,
+        fold.reduce((a, b) => a + (b - m) * (b - m), 0) / fold.length,
       )
       cvMean.push(m)
       cvStd.push(sd)
     }
-    // Training accuracy: fit on all data, score on all data (warm-started).
-    const trainAcc: number[] = new Array(lambdas.length)
-    let wP: number[] | undefined
-    let bP = 0
-    for (const lam of desc) {
-      const m = trainLogisticL2(data, lam, 0.4, STEPS, wP, bP)
-      wP = m.w
-      bP = m.b
-      trainAcc[lambdas.indexOf(lam)] = accuracyOf(m, data)
-    }
+    // Training error: fit on all data, score on all data.
+    const allX = data.map((d) => d.x)
+    const allY = data.map((d) => d.y)
+    const trainErr = lambdas.map((lam) =>
+      mse(ridgeRegression(polyFeatures(allX, DEGREE), allY, lam), allX, allY),
+    )
     let bestIdx = 0
-    for (let i = 1; i < cvMean.length; i++) if (cvMean[i] > cvMean[bestIdx]) bestIdx = i
-    return { cvMean, cvStd, trainAcc, bestIdx }
+    for (let i = 1; i < cvMean.length; i++)
+      if (cvMean[i] < cvMean[bestIdx]) bestIdx = i
+    const yMax =
+      Math.min(
+        0.25,
+        Math.max(...cvMean.map((m, i) => m + cvStd[i]), ...trainErr) * 1.08,
+      )
+    return { cvMean, cvStd, trainErr, bestIdx, yMax }
   }, [data, lambdas, k])
 
   const lx = (lam: number) =>
@@ -98,18 +100,17 @@ export default function CVTuning() {
     ((Math.log10(lam) - Math.log10(LMIN)) /
       (Math.log10(LMAX) - Math.log10(LMIN))) *
       (W - PAD_L - PAD_R)
-  const ly = (a: number) =>
-    H - PAD_B - ((a - Y_MIN) / (Y_MAX - Y_MIN)) * (H - PAD_T - PAD_B)
+  const ly = (e: number) =>
+    H - PAD_B - (Math.min(e, yMax) / yMax) * (H - PAD_T - PAD_B)
 
   const cvPath = cvMean
-    .map((a, i) => `${i === 0 ? 'M' : 'L'} ${lx(lambdas[i]).toFixed(1)} ${ly(a).toFixed(1)}`)
+    .map((e, i) => `${i === 0 ? 'M' : 'L'} ${lx(lambdas[i]).toFixed(1)} ${ly(e).toFixed(1)}`)
     .join(' ')
-  const trainPath = trainAcc
-    .map((a, i) => `${i === 0 ? 'M' : 'L'} ${lx(lambdas[i]).toFixed(1)} ${ly(a).toFixed(1)}`)
+  const trainPath = trainErr
+    .map((e, i) => `${i === 0 ? 'M' : 'L'} ${lx(lambdas[i]).toFixed(1)} ${ly(e).toFixed(1)}`)
     .join(' ')
 
-  const xTicks = [-3, -2, -1, 0]
-  const expChar: Record<number, string> = { [-3]: '⁻³', [-2]: '⁻²', [-1]: '⁻¹', [0]: '⁰' }
+  const xTicks = [-5, -4, -3, -2, -1, 0]
 
   return (
     <figure className="my-10">
@@ -134,22 +135,22 @@ export default function CVTuning() {
             checked={showTrain}
             onChange={(e) => setShowTrain(e.target.checked)}
           />
-          Show training accuracy
+          Show training error
         </label>
       </div>
 
       <div className="border border-rule rounded-lg overflow-hidden bg-paper-soft">
         <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto block">
           {/* axes */}
-          <line x1={PAD_L} y1={ly(Y_MIN)} x2={W - PAD_R} y2={ly(Y_MIN)} stroke="var(--rule)" strokeWidth={1} />
-          <line x1={PAD_L} y1={PAD_T} x2={PAD_L} y2={ly(Y_MIN)} stroke="var(--rule)" strokeWidth={1} />
+          <line x1={PAD_L} y1={ly(0)} x2={W - PAD_R} y2={ly(0)} stroke="var(--rule)" strokeWidth={1} />
+          <line x1={PAD_L} y1={PAD_T} x2={PAD_L} y2={ly(0)} stroke="var(--rule)" strokeWidth={1} />
 
           {/* chosen-λ marker */}
           <line
             x1={lx(lambdas[bestIdx])}
             y1={PAD_T}
             x2={lx(lambdas[bestIdx])}
-            y2={ly(Y_MIN)}
+            y2={ly(0)}
             stroke="var(--accent)"
             strokeWidth={1.25}
             strokeDasharray="3,3"
@@ -172,66 +173,66 @@ export default function CVTuning() {
             )
           })()}
 
-          {/* training accuracy overlay */}
+          {/* training error overlay */}
           {showTrain && (
             <path d={trainPath} fill="none" stroke={TRAIN_COLOR} strokeWidth={1.75} strokeDasharray="4,3" />
           )}
 
           {/* CV error bars */}
-          {cvMean.map((a, i) => (
+          {cvMean.map((e, i) => (
             <line
               key={i}
               x1={lx(lambdas[i])}
-              y1={ly(Math.max(Y_MIN, a - cvStd[i]))}
+              y1={ly(Math.max(0, e - cvStd[i]))}
               x2={lx(lambdas[i])}
-              y2={ly(Math.min(Y_MAX, a + cvStd[i]))}
+              y2={ly(Math.min(yMax, e + cvStd[i]))}
               stroke={CV_COLOR}
               strokeWidth={1}
               opacity={0.4}
             />
           ))}
 
-          {/* CV mean curve */}
+          {/* CV error curve */}
           <path d={cvPath} fill="none" stroke={CV_COLOR} strokeWidth={2} />
-          {cvMean.map((a, i) => (
-            <circle key={i} cx={lx(lambdas[i])} cy={ly(a)} r={i === bestIdx ? 5 : 3} fill={CV_COLOR} stroke="var(--paper)" strokeWidth={1.1} />
+          {cvMean.map((e, i) => (
+            <circle key={i} cx={lx(lambdas[i])} cy={ly(e)} r={i === bestIdx ? 5 : 3} fill={CV_COLOR} stroke="var(--paper)" strokeWidth={1.1} />
           ))}
 
           {/* y ticks */}
-          {[0.25, 0.5, 0.75, 1.0].map((t) => (
-            <text key={t} x={PAD_L - 6} y={ly(t) + 3} fontSize={10} fill="var(--ink-muted)" textAnchor="end" fontFamily="var(--font-mono, monospace)">
+          {[0, yMax / 2, yMax].map((t, i) => (
+            <text key={i} x={PAD_L - 6} y={ly(t) + 3} fontSize={10} fill="var(--ink-muted)" textAnchor="end" fontFamily="var(--font-mono, monospace)">
               {t.toFixed(2)}
             </text>
           ))}
           {/* x ticks (log) */}
           {xTicks.map((e) => (
-            <text key={e} x={lx(Math.pow(10, e))} y={ly(Y_MIN) + 16} fontSize={10} fill="var(--ink-muted)" textAnchor="middle" fontFamily="var(--font-mono, monospace)">
-              10{expChar[e]}
+            <text key={e} x={lx(Math.pow(10, e))} y={ly(0) + 16} fontSize={10} fill="var(--ink-muted)" textAnchor="middle" fontFamily="var(--font-mono, monospace)">
+              10{sup(e)}
             </text>
           ))}
           <text x={(PAD_L + W - PAD_R) / 2} y={H - 6} fontSize={11} fill="var(--ink-muted)" textAnchor="middle" fontStyle="italic">
-            regularisation strength λ
+            ridge penalty λ
           </text>
           <text
             x={14}
-            y={(PAD_T + (H - PAD_B)) / 2}
+            y={(PAD_T + ly(0)) / 2}
             fontSize={11}
             fill="var(--ink-muted)"
             textAnchor="middle"
             fontStyle="italic"
-            transform={`rotate(-90 14 ${(PAD_T + (H - PAD_B)) / 2})`}
+            transform={`rotate(-90 14 ${(PAD_T + ly(0)) / 2})`}
           >
-            accuracy
+            error (MSE)
           </text>
 
           {/* legend */}
-          <g transform={`translate(${W - PAD_R - 132}, ${ly(Y_MIN) - 34})`}>
+          <g transform={`translate(${W - PAD_R - 124}, ${PAD_T + 4})`}>
             <line x1={0} y1={0} x2={16} y2={0} stroke={CV_COLOR} strokeWidth={2} />
-            <text x={20} y={3.5} fontSize={10} fill="var(--ink-muted)" fontFamily="var(--font-sans, sans-serif)">CV accuracy</text>
+            <text x={20} y={3.5} fontSize={10} fill="var(--ink-muted)" fontFamily="var(--font-sans, sans-serif)">CV error</text>
             {showTrain && (
               <>
                 <line x1={0} y1={15} x2={16} y2={15} stroke={TRAIN_COLOR} strokeWidth={1.75} strokeDasharray="4,3" />
-                <text x={20} y={18.5} fontSize={10} fill="var(--ink-muted)" fontFamily="var(--font-sans, sans-serif)">training accuracy</text>
+                <text x={20} y={18.5} fontSize={10} fill="var(--ink-muted)" fontFamily="var(--font-sans, sans-serif)">training error</text>
               </>
             )}
           </g>
@@ -243,24 +244,23 @@ export default function CVTuning() {
           best λ = <span className="text-accent">{lambdas[bestIdx].toExponential(1)}</span>
         </div>
         <div>
-          CV at best = <span className="text-ink">{cvMean[bestIdx].toFixed(3)} ± {cvStd[bestIdx].toFixed(3)}</span>
+          CV error at best = <span className="text-ink">{cvMean[bestIdx].toFixed(4)}</span>
         </div>
         <div>
-          train at λ→0 = <span className="text-ink">{trainAcc[0].toFixed(3)}</span>
+          train error at λ→0 = <span className="text-ink">{trainErr[0].toFixed(4)}</span>
         </div>
       </div>
 
       <figcaption className="font-sans text-sm text-ink-muted mt-4 text-center max-w-prose mx-auto">
-        Figure 11.3 — Choosing λ for L2 logistic regression by k-fold
-        cross-validation, on data with three signal features buried among
-        twenty noise features. Training accuracy (grey, dashed) climbs to a
-        perfect score as λ → 0 — the model memorising the noise. The
-        cross-validated accuracy (teal, with per-fold error bars) refuses to
-        follow: held out, λ → 0 is no better than a little regularisation —
-        the gap between the two curves is the overfitting the training score
-        cannot see — and accuracy collapses once λ grows large enough to
-        crush the real signal too. Cross-validation, not the training score,
-        is what locates a sensible λ.
+        Figure 11.3 — Choosing the ridge penalty λ for a degree-12 polynomial
+        by k-fold cross-validation — the same overfitting-prone fit as Figure
+        11.1, now tuned by λ instead of degree. Training error (grey, dashed)
+        sinks toward zero as λ → 0, the polynomial wriggling through the noise.
+        The cross-validated error (teal, with per-fold error bars) traces a
+        clean U: it is worst at λ → 0 (overfitting) and at large λ
+        (over-smoothing), and lowest at a non-trivial λ in between. The
+        training error would drive λ to zero; cross-validation finds the
+        bottom of the U.
       </figcaption>
     </figure>
   )
