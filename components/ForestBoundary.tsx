@@ -18,8 +18,8 @@ const X_MIN = -3.2
 const X_MAX = 3.2
 const Y_MIN = -2.6
 const Y_MAX = 2.6
-const GX = 38
-const GY = 28
+const GX = 48
+const GY = 36
 const MAX_B = 100
 
 const CLASS = ['#3c5a8c', '#c7522a', '#5d8a3a'] as const
@@ -121,7 +121,9 @@ export default function ForestBoundary() {
         const xD = X_MIN + ((i + 0.5) / GX) * (X_MAX - X_MIN)
         const yD = Y_MAX - ((j + 0.5) / GY) * (Y_MAX - Y_MIN)
         const probs = forestVoteProbs(forest, [xD, yD], b)
-        cells.push({ x: PAD + i * cw, y: PAD + j * ch, w: cw + 0.5, h: ch + 0.5, fill: blend(probs) })
+        // Exact tiling (no overlap): overlapping translucent cells would
+        // double their alpha at the seams and draw a spurious grid.
+        cells.push({ x: PAD + i * cw, y: PAD + j * ch, w: cw, h: ch, fill: blend(probs) })
       }
     }
     return cells
@@ -164,7 +166,7 @@ export default function ForestBoundary() {
           {/* FOREST VOTE MAP */}
           <svg viewBox={`0 0 ${PW} ${PH}`} className="w-full md:w-[50%] h-auto block">
             {heatmap.map((c, i) => (
-              <rect key={i} x={c.x} y={c.y} width={c.w} height={c.h} fill={c.fill} />
+              <rect key={i} x={c.x} y={c.y} width={c.w} height={c.h} fill={c.fill} shapeRendering="crispEdges" />
             ))}
             {data.map((p, i) => (
               <circle key={i} cx={sx(p.x[0])} cy={sy(p.x[1])} r={2.6} fill={CLASS[p.y]} stroke="var(--paper)" strokeWidth={0.6} />
