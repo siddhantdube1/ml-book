@@ -2,8 +2,8 @@ import { createRng, gauss } from './rng'
 
 // ─── Classification trees ────────────────────────────────────────────
 
-/** A 2-D labelled point. y is an integer class in {0, 1, ..., K-1}. */
-export type Point = { x: [number, number]; y: number }
+/** A labelled point with p features. y is an integer class {0, ..., K-1}. */
+export type Point = { x: number[]; y: number }
 
 export type TreeNode =
   | {
@@ -15,7 +15,7 @@ export type TreeNode =
     }
   | {
       kind: 'split'
-      feature: 0 | 1
+      feature: number
       threshold: number
       gain: number
       left: TreeNode
@@ -32,6 +32,8 @@ export type TreeOptions = {
   maxDepth: number
   minSamplesLeaf: number
   criterion?: Criterion
+  /** Features to try per split (random subset). Default: all features. */
+  maxFeatures?: number
 }
 
 // ─── Impurity ────────────────────────────────────────────────────────
@@ -81,16 +83,21 @@ function argmax(counts: number[]): number {
 
 // ─── Best split ──────────────────────────────────────────────────────
 
-export type Split = { feature: 0 | 1; threshold: number; gain: number }
+export type Split = { feature: number; threshold: number; gain: number }
 
 /**
  * Sweep every candidate threshold (midpoints of consecutive sorted values)
- * on both features, return the split of greatest impurity decrease — or null
- * if none reduces impurity while respecting minSamplesLeaf. The sweep moves
- * one point at a time from the right child to the left, updating counts
- * incrementally, so each feature costs O(n log n + nK).
+ * on each candidate feature, return the split of greatest impurity decrease
+ * — or null if none reduces impurity while respecting minSamplesLeaf. The
+ * sweep moves one point at a time from the right child to the left, updating
+ * counts incrementally, so each feature costs O(n log n + nK). `features`
+ * restricts the search to a subset of feature indices (default: all).
  */
-export function bestSplit(points: Point[], opts: TreeOptions): Split | null {
+export function bestSplit(
+  points: Point[],
+  opts: TreeOptions,
+  features?: number[],
+): Split | null {
   const K = opts.numClasses
   const crit = opts.criterion ?? 'gini'
   const minLeaf = opts.minSamplesLeaf
@@ -98,11 +105,12 @@ export function bestSplit(points: Point[], opts: TreeOptions): Split | null {
   if (n < 2 * minLeaf) return null
   const parent = classCounts(points, K)
   const parentImp = impurityOf(parent, crit)
+  const feats =
+    features ?? Array.from({ length: points[0].x.length }, (_, i) => i)
 
   let best: Split | null = null
 
-  for (let f = 0; f < 2; f++) {
-    const feature = f as 0 | 1
+  for (const feature of feats) {
     const sorted = points.slice().sort((a, b) => a.x[feature] - b.x[feature])
     const leftCounts = new Array(K).fill(0)
     const rightCounts = parent.slice()
@@ -134,10 +142,25 @@ export function bestSplit(points: Point[], opts: TreeOptions): Split | null {
 
 const EPS = 1e-12
 
+/**
+ * Pick a random subset of `k` of the `p` feature indices, in place via
+ * partial Fisher–Yates. Used for the per-node feature subsampling that
+ * decorrelates the trees of a random forest.
+ */
+function randomFeatureSubset(p: number, k: number, rng: () => number): number[] {
+  const idx = Array.from({ length: p }, (_, i) => i)
+  for (let i = 0; i < k; i++) {
+    const j = i + Math.floor(rng() * (p - i))
+    ;[idx[i], idx[j]] = [idx[j], idx[i]]
+  }
+  return idx.slice(0, k)
+}
+
 export function buildTree(
   points: Point[],
   opts: TreeOptions,
   depth = 0,
+  rng?: () => number,
 ): TreeNode {
   const K = opts.numClasses
   const counts = classCounts(points, K)
@@ -148,7 +171,15 @@ export function buildTree(
   if (depth >= opts.maxDepth || n < 2 * opts.minSamplesLeaf || gini(counts) === 0)
     return leaf()
 
-  const split = bestSplit(points, opts)
+  // Feature subsampling: when maxFeatures is set below the full count and an
+  // rng is supplied, each node considers a fresh random subset of features.
+  const p = points[0].x.length
+  const features =
+    rng && opts.maxFeatures && opts.maxFeatures < p
+      ? randomFeatureSubset(p, opts.maxFeatures, rng)
+      : undefined
+
+  const split = bestSplit(points, opts, features)
   if (!split || split.gain <= EPS) return leaf()
 
   const left = points.filter((p) => p.x[split.feature] < split.threshold)
@@ -158,8 +189,8 @@ export function buildTree(
     feature: split.feature,
     threshold: split.threshold,
     gain: split.gain,
-    left: buildTree(left, opts, depth + 1),
-    right: buildTree(right, opts, depth + 1),
+    left: buildTree(left, opts, depth + 1, rng),
+    right: buildTree(right, opts, depth + 1, rng),
     counts,
     n,
     depth,
@@ -178,7 +209,7 @@ type MutNode = {
   counts: number[]
   prediction: number
   cachedSplit?: Split | null
-  feature?: 0 | 1
+  feature?: number
   threshold?: number
   gain?: number
   left?: MutNode
@@ -207,7 +238,7 @@ function snapshot(node: MutNode): TreeNode {
   }
   return {
     kind: 'split',
-    feature: node.feature as 0 | 1,
+    feature: node.feature as number,
     threshold: node.threshold as number,
     gain: node.gain as number,
     left: snapshot(node.left as MutNode),
@@ -272,7 +303,7 @@ export function buildTreeFrames(
 
 // ─── Use ─────────────────────────────────────────────────────────────
 
-export function predict(node: TreeNode, x: [number, number]): number {
+export function predict(node: TreeNode, x: number[]): number {
   let cur = node
   while (cur.kind === 'split') {
     cur = x[cur.feature] < cur.threshold ? cur.left : cur.right

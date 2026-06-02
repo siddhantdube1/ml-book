@@ -1,0 +1,828 @@
+import BaggingBootstrap from '@/components/BaggingBootstrap'
+import ForestBoundary from '@/components/ForestBoundary'
+import VarianceCurve from '@/components/VarianceCurve'
+import FeatureImportance from '@/components/FeatureImportance'
+import PyodideEditor from '@/components/PyodideEditor'
+
+export const metadata = {
+  title: 'Random forests',
+  description:
+    'The wisdom of crowds applied to decision trees: bootstrap sampling, feature subsampling, the bias–variance argument for averaging, out-of-bag error as free cross-validation, and feature importance — with four interactive visualisations, runnable Python, and five problems.',
+  openGraph: {
+    title: 'Random forests',
+    description:
+      'An interactive walk-through of random forests — bagging, feature subsampling, variance reduction, out-of-bag error, and feature importance.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 13 · Part IV — Tree-based models
+</p>
+
+# Random forests
+
+*The wisdom of crowds, applied to decision trees. Hundreds of unstable,
+blocky models, decorrelated on purpose and averaged into one smooth and
+remarkably accurate whole.*
+
+Ask one person to guess the number of jellybeans in a jar and they will be
+off — perhaps wildly. Ask a thousand people and average their guesses, and
+the average is often uncanny, closer than almost any single guesser. The
+errors, being roughly independent, cancel; the shared signal survives.
+This is the wisdom of crowds, and it is the whole idea behind the random
+forest. A single decision tree, as Chapter 12 showed, is accurate enough
+but wildly unstable — move a handful of training points and it grows a
+different shape. On its own that instability is a flaw. A forest turns it
+into fuel.
+
+The plan is to grow not one tree but hundreds, each deliberately different
+from the others, and let them vote. We will see the two tricks that force
+the trees apart — training each on a random resample of the data, and
+letting each split consider only a random handful of the features — and
+the bias–variance argument for why averaging so many unstable models
+produces a stable one. We will also meet a small piece of magic: because
+each tree is trained on a resample, the points it happened to leave out
+form a ready-made validation set, and a forest can grade itself for free.
+
+By the end you will have grown a forest from the trees of the last
+chapter, watched its blocky boundaries melt into a smooth one, and seen
+why adding more trees, unlike adding more depth, never makes things worse.
+
+## 1. The wisdom of crowds
+
+The jellybean jar is not a parable; it is a real and repeatable
+phenomenon. Each individual guess is a sum of a true value and an error.
+The errors point every which way — some too high, some too low — and when
+you average many guesses, the errors largely cancel while the true value,
+shared by everyone, adds up. The average can be dramatically better than
+the typical individual, *provided the guessers are not all making the same
+mistake.* That last clause is the whole game.
+
+A decision tree is our guesser. Chapter 12 left it with one glaring
+weakness: variance. A fully grown tree fits its training set almost
+perfectly, but it is brittle — perturb the data slightly and the greedy
+first split can flip, regrowing the entire tree into a different shape with
+a different boundary. Its predictions on new data therefore swing around a
+lot depending on exactly which training sample it saw. High variance is
+precisely the kind of error that averaging cancels.
+
+So the strategy writes itself: grow many trees and average their votes. If
+we can make the trees' errors roughly independent, the average will be far
+more stable than any single tree — lower variance, and so better
+generalisation — at no cost in bias. The only question is how to grow many
+*different* trees from a single training set.
+
+## 2. Why not just train many trees?
+
+The obvious first attempt fails immediately. The Chapter-12 algorithm is
+deterministic: feed it the same data and it makes the same greedy choices
+and returns the same tree, every time. Train it a hundred times on your
+training set and you get a hundred identical trees. Averaging a hundred
+copies of the same guess gives you back that one guess — the crowd is one
+person shouted a hundred times, and its errors do not cancel because they
+are all the same error.
+
+A forest only works if its trees genuinely differ, and differ in a way
+that *decorrelates their mistakes*. We need to inject randomness into the
+tree-growing process — but carefully, because randomness that merely makes
+each tree worse, without making them disagree in useful ways, buys
+nothing. The rest of this chapter is two specific, complementary sources of
+randomness, and the argument for why their combination is exactly right.
+
+## 3. Bagging: bootstrap aggregating
+
+The first source of randomness perturbs the *data*. Instead of training
+each tree on the full dataset, train it on a *bootstrap sample*: draw $n$
+points from the $n$ training points *with replacement*. Some points get
+drawn two or three times, some not at all, and the resulting sample —
+though the same size as the original and drawn from it — is a slightly
+different dataset. A tree grown on it grows a slightly different shape.
+Repeat with a fresh bootstrap sample for each tree, and you have a
+collection of trees that disagree. Classify a new point by majority vote
+across the trees (for regression, average their outputs). This recipe —
+**b**ootstrap **agg**regat**ing** — is called *bagging*.
+
+<BaggingBootstrap />
+
+The widget shows one bootstrap draw. On the left, the points drawn into the
+sample are filled (and sized up if drawn more than once), while the points
+never drawn — about a third of them, as we will see in §6 — are left
+hollow. On the right is the tree grown on that sample. Press "New
+bootstrap" and watch both change: a different resample, a different tree.
+That variability, a liability for a single tree, is exactly the raw
+material bagging needs. Each tree is a believable model of the data; they
+differ because each saw a believable variation of the data.
+
+## 4. Why averaging reduces variance
+
+The bias–variance arithmetic makes the benefit precise. Suppose each tree's
+prediction at some point is a random variable — random because it depends
+on the random bootstrap sample — with mean $\mu$ and variance $\sigma^2$.
+Averaging $B$ of them leaves the mean at $\mu$ (so the *bias* is unchanged:
+the average is centred where the individuals are centred), but if the trees
+were *independent* the variance of their average would be
+
+$$\text{Var}\!\left(\frac{1}{B}\sum_{b=1}^B T_b\right) = \frac{\sigma^2}{B},$$
+
+shrinking toward zero as $B$ grows. Averaging trades nothing away and
+drives variance down — the mathematical statement of the wisdom of crowds.
+
+But bagged trees are *not* independent. They are grown from overlapping
+resamples of the same data, so they tend to make similar splits and similar
+mistakes. With a pairwise correlation $\rho$ between the trees, the variance
+of the average is instead
+
+$$\rho\,\sigma^2 + \frac{1-\rho}{B}\,\sigma^2,$$
+
+and as $B \to \infty$ the second term vanishes but the first does not:
+variance bottoms out at $\rho\,\sigma^2$. Adding more trees can only take
+you down to a floor set by *how correlated the trees are*. To push the
+floor lower, we must make the trees less alike — and bagging alone does not
+do enough.
+
+## 5. Feature subsampling: the "random" in random forest
+
+Why are bagged trees still so correlated? Because they all see the same
+strong features. If one feature is highly predictive, the greedy algorithm
+seizes on it for the very first split in nearly every tree, no matter the
+resample — so the trees share their most important decision and their
+errors stay coupled.
+
+The fix is the second source of randomness, and it is what makes a forest
+*random*: at **each split**, let the tree consider only a random subset of
+the features — the standard choice is $\sqrt{p}$ of the $p$ features. Now
+the dominant feature is simply unavailable at many nodes, forcing different
+trees to find different structure and lowering their correlation $\rho$. It
+makes each individual tree a little *weaker* — sometimes it must split on a
+mediocre feature — but that small loss in individual quality is repaid many
+times over by the decorrelation, which lowers the $\rho\sigma^2$ floor the
+whole ensemble settles to. Bootstrap rows plus subsampled features: that
+combination is the **random forest**.
+
+<ForestBoundary />
+
+Here is the payoff, drawn. On the left, a single fully-grown tree: its
+boundary is the blocky, axis-aligned staircase of Chapter 12, clinging to
+individual points. On the right, the forest's *vote map* — at each
+location, the fraction of the $B$ trees voting for each class, blended to a
+colour. Slide $B$ up and the staircases of a hundred different trees
+average into a smooth, soft boundary; the graded colour near the frontier
+is the forest honestly expressing uncertainty where the trees disagree.
+Switch to **XOR** — the problem that defeated logistic regression — and the
+forest handles it without fuss. And toggle **feature subsampling** off: the
+trees become more alike, and the map needs more of them to look as settled.
+
+## 6. Out-of-bag error
+
+Bagging hands us an unexpected gift. Each bootstrap sample leaves some
+points out — and we can count how many. The probability that a particular
+point is *not* chosen in a single draw is $1 - 1/n$, and since the $n$
+draws are independent the probability it is missed by all of them is
+
+$$\left(1 - \frac{1}{n}\right)^{n} \longrightarrow \frac{1}{e} \approx 0.368.$$
+
+So for each tree, about **37%** of the training points are *out-of-bag* —
+never seen during that tree's training. Those points are, for that tree, a
+held-out test set that cost nothing to set aside.
+
+Pool this across the forest and you get a free validation estimate. To
+score the forest *out-of-bag*, predict each training point using only the
+trees whose bootstrap sample excluded it, and compare to the truth. Because
+every prediction is made by trees that never saw the point, the *out-of-bag
+error* is an honest estimate of generalisation — closely tracking what a
+separate test set would tell you, with no separate test set required. It is
+the forest's built-in answer to Chapter 11's cross-validation, computed as a
+side effect of training.
+
+## 7. What the forest buys
+
+Time to put numbers on the variance reduction. The widget trains a forest
+on a noisy two-class problem and plots accuracy against the number of trees
+$B$.
+
+<VarianceCurve />
+
+Three things are worth reading off it. First, the faint cloud of dots:
+each is one tree's own accuracy, and they are *scattered*, spanning several
+points and mostly sitting *below* the forest. That spread is the variance —
+the unreliability of any single tree. Second, the solid line — the forest's
+accuracy — sits above the cloud and *climbs* as trees are added, then
+*plateaus*. This is the signature behaviour of a forest: more trees only
+ever help, with diminishing returns, and crucially they **never overfit**.
+Unlike tree depth in Chapter 12, where pushing too far wrecked
+generalisation, you cannot harm a forest by adding trees — you only spend
+more compute for less and less benefit. There is no $B$ to tune carefully;
+you pick a number large enough that the curve has flattened and stop.
+Third, the dashed line — the out-of-bag accuracy — tracks the held-out test
+accuracy closely, the free validation estimate of §6 made good.
+
+A forest's trees are also grown completely independently of one another,
+which means training parallelises trivially: hand each core a few trees and
+combine at the end. The cost of all this is the subject of §8 — but it is
+not compute.
+
+## 8. Reading the black box: feature importance
+
+The cost is interpretability. A single shallow tree is a flowchart you can
+read aloud and explain to a regulator; a forest of five hundred deep trees
+is not. You have traded transparency for accuracy. But a forest hands back
+*one* kind of insight that a linear model gives only grudgingly: it can
+tell you which features mattered.
+
+The idea reuses the impurity of Chapter 12. Every split in every tree
+reduces impurity by some amount (its information gain), and that reduction
+is credited to the feature the split used. Sum those reductions across the
+whole forest, group them by feature, and normalise: the result is a
+*feature importance* — the share of the forest's total impurity decrease
+that each feature is responsible for.
+
+<FeatureImportance />
+
+The forest here is trained on data with three genuine signal features and
+five pure-noise features. Its importances recover the truth cleanly: the
+three signal features tower over the five noise features, which sit near
+zero. This is the same diagnosis the lasso delivered in Chapter 9 — *which
+inputs carry the signal* — arrived at by a completely different route, not
+a sparsity penalty but an accounting of impurity. One caveat worth filing
+away: impurity-based importance is biased toward features with many
+distinct values (more places to split), so the careful practitioner cross-
+checks with *permutation importance*, which measures how much accuracy
+falls when a feature's values are shuffled. The forest is a black box, but
+it is not an entirely silent one.
+
+## 9. Complexity
+
+**Training.** A forest is $B$ independent tree builds, so it costs $B$ times
+a single tree — roughly $O(B \, p \, n \log^2 n)$ — but the trees share
+nothing during construction, so training is *embarrassingly parallel*: $B$
+cores finish in the time of one tree. Feature subsampling actually makes
+each tree slightly *cheaper* than a Chapter-12 tree, since each split
+examines only $\sqrt{p}$ features instead of all $p$.
+
+**Prediction.** A point is pushed through all $B$ trees and the votes
+tallied: $B \times O(\text{depth})$. Linear in the number of trees, but each
+tree is a handful of comparisons, so even a 500-tree forest predicts in
+microseconds.
+
+**Memory.** The model is $B$ trees, which for deep trees on large data is
+the real cost of a forest — hundreds of fully-grown trees take far more
+space than one. In practice this, more than accuracy, is what bounds $B$.
+
+## 10. Implementing it yourself
+
+A complete random forest — bootstrap rows, a random feature subset per
+split, and a majority vote — in about forty lines, reusing the Chapter-12
+tree.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+# A noisy XOR: class = sign(x0 * x1), with 15% of labels flipped.
+rng = np.random.default_rng(0)
+n = 300
+X = rng.normal(size=(n, 2)); y = (X[:, 0] * X[:, 1] > 0).astype(int)
+y = np.where(rng.random(n) < 0.15, 1 - y, y)
+Xte = rng.normal(size=(n, 2)); yte = (Xte[:, 0] * Xte[:, 1] > 0).astype(int)
+yte = np.where(rng.random(n) < 0.15, 1 - yte, yte)
+
+def gini(y):
+    if len(y) == 0: return 0.0
+    c = np.bincount(y, minlength=2); p = c / len(y)
+    return 1.0 - np.sum(p ** 2)
+
+def best_split(X, y, features):
+    n = len(y); parent = gini(y); best = None
+    for f in features:                       # only the sampled features
+        order = np.argsort(X[:, f]); xs, ys = X[order, f], y[order]
+        for i in range(1, n):
+            if xs[i] == xs[i - 1]: continue
+            w = (i / n) * gini(ys[:i]) + ((n - i) / n) * gini(ys[i:])
+            g = parent - w
+            if best is None or g > best[0]:
+                best = (g, f, (xs[i] + xs[i - 1]) / 2)
+    return best
+
+class Node: pass
+def build(X, y, depth, max_depth, max_features, rng, min_leaf=1):
+    node = Node(); node.prediction = int(np.bincount(y, minlength=2).argmax())
+    if depth >= max_depth or len(y) < 2 * min_leaf or gini(y) == 0:
+        node.leaf = True; return node
+    feats = rng.choice(X.shape[1], size=min(max_features, X.shape[1]), replace=False)
+    s = best_split(X, y, feats)
+    if s is None or s[0] <= 1e-12:
+        node.leaf = True; return node
+    _, f, t = s; node.leaf, node.feature, node.threshold = False, f, t
+    m = X[:, f] < t
+    node.left = build(X[m], y[m], depth + 1, max_depth, max_features, rng, min_leaf)
+    node.right = build(X[~m], y[~m], depth + 1, max_depth, max_features, rng, min_leaf)
+    return node
+def predict_one(node, x):
+    while not node.leaf:
+        node = node.left if x[node.feature] < node.threshold else node.right
+    return node.prediction
+
+def train_forest(X, y, n_trees, max_depth=8, max_features=1, seed=0):
+    rng = np.random.default_rng(seed); trees = []; n = len(y)
+    for _ in range(n_trees):
+        idx = rng.integers(0, n, n)          # bootstrap rows, with replacement
+        trees.append(build(X[idx], y[idx], 0, max_depth, max_features, rng))
+    return trees
+
+def forest_predict(trees, X):
+    votes = np.array([[predict_one(t, x) for t in trees] for x in X])
+    return (votes.mean(axis=1) >= 0.5).astype(int)
+
+single = build(X, y, 0, 8, 2, np.random.default_rng(1))    # one tree, all features
+forest = train_forest(X, y, 100, max_depth=8, max_features=1, seed=2)
+print(f"single tree:  test accuracy = {np.mean([predict_one(single, x) for x in Xte] == yte):.3f}")
+print(f"forest (100): test accuracy = {np.mean(forest_predict(forest, Xte) == yte):.3f}")
+`}
+/>
+
+Forty lines, and most of them are the Chapter-12 tree. The forest is the
+two extra lines in \`train_forest\` — bootstrap the rows, and let \`build\`
+sample features — plus the vote in \`forest_predict\`. The forest edges out
+the single tree on this one test set, but its real advantage is that it
+does so *reliably*: rerun the single tree on a fresh resample and its score
+lurches; the forest's barely moves.
+
+## 11. Problems
+
+### Problem 1 — Why averaging works, and why bagging is not enough
+
+Two conceptual questions. (a) Explain why averaging many trees reduces
+*variance* but leaves *bias* unchanged — and why that is exactly the trade
+you want for a high-variance, low-bias model like a deep tree. (b) Averaging
+drives variance toward $\rho\sigma^2$, not zero. What is $\rho$, why does
+bagging alone leave it stubbornly high, and how does feature subsampling
+lower it?
+
+<details>
+  <summary>Show solution</summary>
+
+**(a)** Averaging is a linear operation, so the mean of the averaged
+predictor equals the average of the individual means — if every tree is
+centred on the truth (low bias), so is their average. But variance shrinks:
+independent errors partly cancel when summed, so the average is steadier
+than any individual. A deep tree is the ideal candidate — it has low bias
+(it can fit almost anything) but high variance (it fits the particular
+sample's noise). Averaging keeps the low bias and kills the variance; you
+would *not* want to average high-bias models, because averaging cannot fix
+a bias they all share.
+
+**(b)** $\rho$ is the pairwise correlation between the trees' predictions —
+how much their errors move together. Bagging perturbs only the *rows* (the
+bootstrap sample), but every tree still sees every *feature*, so they all
+seize on the same dominant feature for their top splits and end up highly
+correlated: $\rho$ stays large, and the variance floor $\rho\sigma^2$ stays
+high. Feature subsampling makes the strong feature unavailable at many
+nodes, forcing trees to diversify their structure; this lowers $\rho$ and so
+lowers the floor, at the price of slightly weaker individual trees — a trade
+that pays off in the ensemble.
+
+</details>
+
+### Problem 2 — Bootstrap and out-of-bag
+
+Implement bootstrap sampling, and verify empirically that the out-of-bag
+fraction — the share of points never drawn — converges to $1/e \approx
+0.368$ as $n$ grows.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def oob_fraction(n, seed):
+    # Draw n indices from range(n) with replacement; return the fraction of
+    # the original n indices that were never drawn. Your code:
+    pass
+
+for n in [10, 100, 1000, 10000]:
+    fracs = [oob_fraction(n, s) for s in range(200)]
+    print(f"n = {n:6d}: mean out-of-bag fraction = {np.mean(fracs):.4f}")
+print(f"\\n1/e = {1/np.e:.4f}")
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def oob_fraction(n, seed):
+    idx = np.random.default_rng(seed).integers(0, n, n)  # bootstrap sample
+    drawn = np.unique(idx)
+    return 1 - len(drawn) / n
+
+for n in [10, 100, 1000, 10000]:
+    fracs = [oob_fraction(n, s) for s in range(200)]
+    print(f"n = {n:6d}: mean out-of-bag fraction = {np.mean(fracs):.4f}")
+print(f"\\n1/e = {1/np.e:.4f}")
+`}
+/>
+
+For small $n$ the fraction is a little above $1/e$ (with $n=10$, about
+0.39), and it settles onto $0.368$ as $n$ grows. The derivation is exact:
+each of the $n$ independent draws misses a given point with probability
+$1 - 1/n$, so the point is out-of-bag with probability $(1-1/n)^n$, and that
+expression tends to $e^{-1}$. Roughly a third of the data sits out of every
+tree — and becomes that tree's free validation set.
+
+</details>
+
+### Problem 3 — The ensemble vote
+
+Given a list of already-trained trees, classify by majority vote, and show
+the vote beats the average individual tree. (The tree code is provided; you
+write the vote.)
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+n = 300
+X = rng.normal(size=(n, 2)); y = (X[:, 0] * X[:, 1] > 0).astype(int)
+y = np.where(rng.random(n) < 0.15, 1 - y, y)
+Xte = rng.normal(size=(n, 2)); yte = (Xte[:, 0] * Xte[:, 1] > 0).astype(int)
+yte = np.where(rng.random(n) < 0.15, 1 - yte, yte)
+
+def gini(y):
+    if len(y) == 0: return 0.0
+    c = np.bincount(y, minlength=2); p = c / len(y); return 1.0 - np.sum(p ** 2)
+def best_split(X, y, feats):
+    n = len(y); parent = gini(y); best = None
+    for f in feats:
+        o = np.argsort(X[:, f]); xs, ys = X[o, f], y[o]
+        for i in range(1, n):
+            if xs[i] == xs[i - 1]: continue
+            w = (i / n) * gini(ys[:i]) + ((n - i) / n) * gini(ys[i:])
+            g = parent - w
+            if best is None or g > best[0]: best = (g, f, (xs[i] + xs[i - 1]) / 2)
+    return best
+class Node: pass
+def build(X, y, d, md, mf, rng):
+    nd = Node(); nd.prediction = int(np.bincount(y, minlength=2).argmax())
+    if d >= md or len(y) < 2 or gini(y) == 0: nd.leaf = True; return nd
+    feats = rng.choice(X.shape[1], size=min(mf, X.shape[1]), replace=False)
+    s = best_split(X, y, feats)
+    if s is None or s[0] <= 1e-12: nd.leaf = True; return nd
+    _, f, t = s; nd.leaf, nd.feature, nd.threshold = False, f, t
+    m = X[:, f] < t
+    nd.left = build(X[m], y[m], d + 1, md, mf, rng); nd.right = build(X[~m], y[~m], d + 1, md, mf, rng)
+    return nd
+def predict_one(nd, x):
+    while not nd.leaf: nd = nd.left if x[nd.feature] < nd.threshold else nd.right
+    return nd.prediction
+
+# Train 50 trees on bootstrap samples (provided).
+rng2 = np.random.default_rng(3); trees = []
+for _ in range(50):
+    idx = rng2.integers(0, n, n)
+    trees.append(build(X[idx], y[idx], 0, 8, 1, rng2))
+
+# Your code:
+#   1. mean_single = average test accuracy of the individual trees.
+#   2. forest_acc  = test accuracy of the majority vote across all 50 trees.
+#   3. Print both.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+n = 300
+X = rng.normal(size=(n, 2)); y = (X[:, 0] * X[:, 1] > 0).astype(int)
+y = np.where(rng.random(n) < 0.15, 1 - y, y)
+Xte = rng.normal(size=(n, 2)); yte = (Xte[:, 0] * Xte[:, 1] > 0).astype(int)
+yte = np.where(rng.random(n) < 0.15, 1 - yte, yte)
+
+def gini(y):
+    if len(y) == 0: return 0.0
+    c = np.bincount(y, minlength=2); p = c / len(y); return 1.0 - np.sum(p ** 2)
+def best_split(X, y, feats):
+    n = len(y); parent = gini(y); best = None
+    for f in feats:
+        o = np.argsort(X[:, f]); xs, ys = X[o, f], y[o]
+        for i in range(1, n):
+            if xs[i] == xs[i - 1]: continue
+            w = (i / n) * gini(ys[:i]) + ((n - i) / n) * gini(ys[i:])
+            g = parent - w
+            if best is None or g > best[0]: best = (g, f, (xs[i] + xs[i - 1]) / 2)
+    return best
+class Node: pass
+def build(X, y, d, md, mf, rng):
+    nd = Node(); nd.prediction = int(np.bincount(y, minlength=2).argmax())
+    if d >= md or len(y) < 2 or gini(y) == 0: nd.leaf = True; return nd
+    feats = rng.choice(X.shape[1], size=min(mf, X.shape[1]), replace=False)
+    s = best_split(X, y, feats)
+    if s is None or s[0] <= 1e-12: nd.leaf = True; return nd
+    _, f, t = s; nd.leaf, nd.feature, nd.threshold = False, f, t
+    m = X[:, f] < t
+    nd.left = build(X[m], y[m], d + 1, md, mf, rng); nd.right = build(X[~m], y[~m], d + 1, md, mf, rng)
+    return nd
+def predict_one(nd, x):
+    while not nd.leaf: nd = nd.left if x[nd.feature] < nd.threshold else nd.right
+    return nd.prediction
+
+rng2 = np.random.default_rng(3); trees = []
+for _ in range(50):
+    idx = rng2.integers(0, n, n)
+    trees.append(build(X[idx], y[idx], 0, 8, 1, rng2))
+
+per_tree = [np.mean([predict_one(t, x) for x in Xte] == yte) for t in trees]
+votes = np.array([[predict_one(t, x) for t in trees] for x in Xte])
+forest_pred = (votes.mean(axis=1) >= 0.5).astype(int)
+
+print(f"mean single tree: {np.mean(per_tree):.3f}  (range {min(per_tree):.2f}-{max(per_tree):.2f})")
+print(f"forest vote:      {np.mean(forest_pred == yte):.3f}")
+`}
+/>
+
+The individual trees scatter across several accuracy points; the vote sits
+at or above the best of them, and comfortably above the average. The
+majority vote is the wisdom of crowds in one line: \`votes.mean(axis=1) >=
+0.5\` — each tree contributes one ballot, and the ensemble believes the
+majority.
+
+</details>
+
+### Problem 4 — A random forest from scratch
+
+Wrap the pieces into a single \`RandomForest\` that bootstraps rows, samples
+features per split, and votes — then compare it to one tree, varying the
+\`max_features\` knob to feel the bias–variance trade.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(1)
+n, p = 400, 6
+X = rng.normal(size=(n, p))
+true_w = np.array([1.5, -1.2, 0.8, 0.0, 0.0, 0.0])
+y = ((X @ true_w + rng.normal(0, 0.5, n)) > 0).astype(int)
+split = int(0.7 * n)
+Xtr, ytr, Xte, yte = X[:split], y[:split], X[split:], y[split:]
+
+def gini(y):
+    if len(y) == 0: return 0.0
+    c = np.bincount(y, minlength=2); pr = c / len(y); return 1.0 - np.sum(pr ** 2)
+def best_split(X, y, feats):
+    n = len(y); parent = gini(y); best = None
+    for f in feats:
+        o = np.argsort(X[:, f]); xs, ys = X[o, f], y[o]
+        for i in range(1, n):
+            if xs[i] == xs[i - 1]: continue
+            w = (i / n) * gini(ys[:i]) + ((n - i) / n) * gini(ys[i:])
+            g = parent - w
+            if best is None or g > best[0]: best = (g, f, (xs[i] + xs[i - 1]) / 2)
+    return best
+class Node: pass
+def build(X, y, d, md, mf, rng):
+    nd = Node(); nd.prediction = int(np.bincount(y, minlength=2).argmax())
+    if d >= md or len(y) < 2 or gini(y) == 0: nd.leaf = True; return nd
+    feats = rng.choice(X.shape[1], size=min(mf, X.shape[1]), replace=False)
+    s = best_split(X, y, feats)
+    if s is None or s[0] <= 1e-12: nd.leaf = True; return nd
+    _, f, t = s; nd.leaf, nd.feature, nd.threshold = False, f, t
+    m = X[:, f] < t
+    nd.left = build(X[m], y[m], d + 1, md, mf, rng); nd.right = build(X[~m], y[~m], d + 1, md, mf, rng)
+    return nd
+def predict_one(nd, x):
+    while not nd.leaf: nd = nd.left if x[nd.feature] < nd.threshold else nd.right
+    return nd.prediction
+
+def random_forest(X, y, n_trees, max_features, seed=0, max_depth=8):
+    # Your code: bootstrap rows for each tree, build with the given
+    # max_features, and return the list of trees.
+    pass
+
+def forest_acc(trees, X, y):
+    votes = np.array([[predict_one(t, x) for t in trees] for x in X])
+    return np.mean((votes.mean(axis=1) >= 0.5).astype(int) == y)
+
+# Compare a single tree to forests with different max_features.
+one = build(Xtr, ytr, 0, 8, p, np.random.default_rng(0))
+print(f"single tree:           {np.mean([predict_one(one, x) for x in Xte] == yte):.3f}")
+for mf in [1, 2, p]:
+    trees = random_forest(Xtr, ytr, 80, mf, seed=4)
+    print(f"forest, max_features={mf}: {forest_acc(trees, Xte, yte):.3f}")
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(1)
+n, p = 400, 6
+X = rng.normal(size=(n, p))
+true_w = np.array([1.5, -1.2, 0.8, 0.0, 0.0, 0.0])
+y = ((X @ true_w + rng.normal(0, 0.5, n)) > 0).astype(int)
+split = int(0.7 * n)
+Xtr, ytr, Xte, yte = X[:split], y[:split], X[split:], y[split:]
+
+def gini(y):
+    if len(y) == 0: return 0.0
+    c = np.bincount(y, minlength=2); pr = c / len(y); return 1.0 - np.sum(pr ** 2)
+def best_split(X, y, feats):
+    n = len(y); parent = gini(y); best = None
+    for f in feats:
+        o = np.argsort(X[:, f]); xs, ys = X[o, f], y[o]
+        for i in range(1, n):
+            if xs[i] == xs[i - 1]: continue
+            w = (i / n) * gini(ys[:i]) + ((n - i) / n) * gini(ys[i:])
+            g = parent - w
+            if best is None or g > best[0]: best = (g, f, (xs[i] + xs[i - 1]) / 2)
+    return best
+class Node: pass
+def build(X, y, d, md, mf, rng):
+    nd = Node(); nd.prediction = int(np.bincount(y, minlength=2).argmax())
+    if d >= md or len(y) < 2 or gini(y) == 0: nd.leaf = True; return nd
+    feats = rng.choice(X.shape[1], size=min(mf, X.shape[1]), replace=False)
+    s = best_split(X, y, feats)
+    if s is None or s[0] <= 1e-12: nd.leaf = True; return nd
+    _, f, t = s; nd.leaf, nd.feature, nd.threshold = False, f, t
+    m = X[:, f] < t
+    nd.left = build(X[m], y[m], d + 1, md, mf, rng); nd.right = build(X[~m], y[~m], d + 1, md, mf, rng)
+    return nd
+def predict_one(nd, x):
+    while not nd.leaf: nd = nd.left if x[nd.feature] < nd.threshold else nd.right
+    return nd.prediction
+
+def random_forest(X, y, n_trees, max_features, seed=0, max_depth=8):
+    rng = np.random.default_rng(seed); trees = []; n = len(y)
+    for _ in range(n_trees):
+        idx = rng.integers(0, n, n)
+        trees.append(build(X[idx], y[idx], 0, max_depth, max_features, rng))
+    return trees
+
+def forest_acc(trees, X, y):
+    votes = np.array([[predict_one(t, x) for t in trees] for x in X])
+    return np.mean((votes.mean(axis=1) >= 0.5).astype(int) == y)
+
+one = build(Xtr, ytr, 0, 8, p, np.random.default_rng(0))
+print(f"single tree:           {np.mean([predict_one(one, x) for x in Xte] == yte):.3f}")
+for mf in [1, 2, p]:
+    trees = random_forest(Xtr, ytr, 80, mf, seed=4)
+    print(f"forest, max_features={mf}: {forest_acc(trees, Xte, yte):.3f}")
+`}
+/>
+
+Every forest beats the single tree. And \`max_features\` shows its
+trade-off: at \`max_features = p\` the trees see all features and are
+*correlated* (it is plain bagging, no feature randomness), so the forest
+gains less; at \`max_features = 1\` or $2$ the trees are decorrelated and the
+ensemble is usually strongest. The sweet spot near $\sqrt{p}$ is why it is
+the default.
+
+</details>
+
+### Problem 5 — Out-of-bag error is free cross-validation
+
+Chapter 11 made you split off a validation set to estimate performance. A
+forest gives you one for nothing. Compute the out-of-bag accuracy as $B$
+grows, and confirm it plateaus (more trees never hurt) and tracks a held-out
+test score.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+n = 300
+X = rng.normal(size=(n, 2)); y = (X[:, 0] * X[:, 1] > 0).astype(int)
+y = np.where(rng.random(n) < 0.15, 1 - y, y)
+Xte = rng.normal(size=(n, 2)); yte = (Xte[:, 0] * Xte[:, 1] > 0).astype(int)
+yte = np.where(rng.random(n) < 0.15, 1 - yte, yte)
+
+def gini(y):
+    if len(y) == 0: return 0.0
+    c = np.bincount(y, minlength=2); p = c / len(y); return 1.0 - np.sum(p ** 2)
+def best_split(X, y, feats):
+    n = len(y); parent = gini(y); best = None
+    for f in feats:
+        o = np.argsort(X[:, f]); xs, ys = X[o, f], y[o]
+        for i in range(1, n):
+            if xs[i] == xs[i - 1]: continue
+            w = (i / n) * gini(ys[:i]) + ((n - i) / n) * gini(ys[i:])
+            g = parent - w
+            if best is None or g > best[0]: best = (g, f, (xs[i] + xs[i - 1]) / 2)
+    return best
+class Node: pass
+def build(X, y, d, md, mf, rng):
+    nd = Node(); nd.prediction = int(np.bincount(y, minlength=2).argmax())
+    if d >= md or len(y) < 2 or gini(y) == 0: nd.leaf = True; return nd
+    feats = rng.choice(X.shape[1], size=min(mf, X.shape[1]), replace=False)
+    s = best_split(X, y, feats)
+    if s is None or s[0] <= 1e-12: nd.leaf = True; return nd
+    _, f, t = s; nd.leaf, nd.feature, nd.threshold = False, f, t
+    m = X[:, f] < t
+    nd.left = build(X[m], y[m], d + 1, md, mf, rng); nd.right = build(X[~m], y[~m], d + 1, md, mf, rng)
+    return nd
+def predict_one(nd, x):
+    while not nd.leaf: nd = nd.left if x[nd.feature] < nd.threshold else nd.right
+    return nd.prediction
+
+# Train trees, recording each tree's out-of-bag mask.
+rng2 = np.random.default_rng(5); trees = []; oob = []
+for _ in range(100):
+    idx = rng2.integers(0, n, n)
+    in_bag = np.zeros(n, bool); in_bag[idx] = True
+    trees.append(build(X[idx], y[idx], 0, 8, 1, rng2)); oob.append(~in_bag)
+
+# Your code:
+#   For B in [1, 5, 10, 25, 50, 100]:
+#     - OOB accuracy: predict each training point using only the first B trees
+#       whose oob mask includes it; compare to y.
+#     - Test accuracy of the first B trees on (Xte, yte).
+#   Print both columns.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+n = 300
+X = rng.normal(size=(n, 2)); y = (X[:, 0] * X[:, 1] > 0).astype(int)
+y = np.where(rng.random(n) < 0.15, 1 - y, y)
+Xte = rng.normal(size=(n, 2)); yte = (Xte[:, 0] * Xte[:, 1] > 0).astype(int)
+yte = np.where(rng.random(n) < 0.15, 1 - yte, yte)
+
+def gini(y):
+    if len(y) == 0: return 0.0
+    c = np.bincount(y, minlength=2); p = c / len(y); return 1.0 - np.sum(p ** 2)
+def best_split(X, y, feats):
+    n = len(y); parent = gini(y); best = None
+    for f in feats:
+        o = np.argsort(X[:, f]); xs, ys = X[o, f], y[o]
+        for i in range(1, n):
+            if xs[i] == xs[i - 1]: continue
+            w = (i / n) * gini(ys[:i]) + ((n - i) / n) * gini(ys[i:])
+            g = parent - w
+            if best is None or g > best[0]: best = (g, f, (xs[i] + xs[i - 1]) / 2)
+    return best
+class Node: pass
+def build(X, y, d, md, mf, rng):
+    nd = Node(); nd.prediction = int(np.bincount(y, minlength=2).argmax())
+    if d >= md or len(y) < 2 or gini(y) == 0: nd.leaf = True; return nd
+    feats = rng.choice(X.shape[1], size=min(mf, X.shape[1]), replace=False)
+    s = best_split(X, y, feats)
+    if s is None or s[0] <= 1e-12: nd.leaf = True; return nd
+    _, f, t = s; nd.leaf, nd.feature, nd.threshold = False, f, t
+    m = X[:, f] < t
+    nd.left = build(X[m], y[m], d + 1, md, mf, rng); nd.right = build(X[~m], y[~m], d + 1, md, mf, rng)
+    return nd
+def predict_one(nd, x):
+    while not nd.leaf: nd = nd.left if x[nd.feature] < nd.threshold else nd.right
+    return nd.prediction
+
+rng2 = np.random.default_rng(5); trees = []; oob = []
+for _ in range(100):
+    idx = rng2.integers(0, n, n)
+    in_bag = np.zeros(n, bool); in_bag[idx] = True
+    trees.append(build(X[idx], y[idx], 0, 8, 1, rng2)); oob.append(~in_bag)
+
+def oob_acc(B):
+    votes = np.zeros((n, 2)); counted = np.zeros(n, bool)
+    for t, m in list(zip(trees, oob))[:B]:
+        for i in np.where(m)[0]:
+            votes[i, predict_one(t, X[i])] += 1; counted[i] = True
+    return np.mean(votes[counted].argmax(axis=1) == y[counted])
+
+def test_acc(B):
+    v = np.array([[predict_one(t, x) for t in trees[:B]] for x in Xte])
+    return np.mean((v.mean(axis=1) >= 0.5).astype(int) == yte)
+
+print(f"{'B':>4s}  {'OOB':>6s}  {'test':>6s}")
+for B in [1, 5, 10, 25, 50, 100]:
+    print(f"{B:>4d}  {oob_acc(B):>6.3f}  {test_acc(B):>6.3f}")
+`}
+/>
+
+Both columns climb and then flatten, and the out-of-bag estimate stays
+close to the held-out test score throughout — usually within a percentage
+point or two once $B$ is moderate. That is the whole point: the forest
+hands you a generalisation estimate as a by-product of training, no data set
+aside, no separate fitting. Where Chapter 11 retrained the model $k$ times to
+get a cross-validated score, a forest gets a comparable estimate for free,
+because bagging already built a held-out set into every tree.
+
+</details>
+
+---
+
+*Next: Chapter 14 — Gradient boosting.* A forest grows its trees in
+parallel and lets them vote as equals; boosting grows them one at a time,
+in sequence, each new tree trained specifically to fix the mistakes of the
+ones before it — a more aggressive way to combine weak learners, and the
+engine behind the algorithms that win competitions on tabular data.

@@ -38,7 +38,7 @@ const parts: { title: string; chapters: Chapter[] }[] = [
     title: 'IV — Trees and ensembles',
     chapters: [
       { num: 12, title: 'Decision trees', blurb: 'Splitting, growing, pruning — and watching it all happen.', href: '/chapters/12-decision-trees' },
-      { num: 13, title: 'Random forests', blurb: 'Why a crowd of imperfect trees beats one perfect one.' },
+      { num: 13, title: 'Random forests', blurb: 'Why a crowd of imperfect trees beats one perfect one.', href: '/chapters/13-random-forests' },
       { num: 14, title: 'Gradient boosting', blurb: 'Sequential correction, and the road to XGBoost.' },
     ],
   },
