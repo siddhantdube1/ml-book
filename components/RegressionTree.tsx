@@ -29,7 +29,7 @@ export default function RegressionTree() {
   )
 
   const tree = useMemo(
-    () => buildRegressionTree(train, depth, 2),
+    () => buildRegressionTree(train.map((p) => ({ x: [p.x], y: p.y })), depth, 2),
     [train, depth],
   )
   const steps = useMemo(() => regSteps(tree, X_MIN, X_MAX), [tree])
@@ -37,12 +37,12 @@ export default function RegressionTree() {
 
   const trainMSE = useMemo(() => {
     let s = 0
-    for (const p of train) s += (predictReg(tree, p.x) - p.y) ** 2
+    for (const p of train) s += (predictReg(tree, [p.x]) - p.y) ** 2
     return s / train.length
   }, [tree, train])
   const testMSE = useMemo(() => {
     let s = 0
-    for (const p of test) s += (predictReg(tree, p.x) - p.y) ** 2
+    for (const p of test) s += (predictReg(tree, [p.x]) - p.y) ** 2
     return s / test.length
   }, [tree, test])
 

@@ -328,14 +328,15 @@ export function treeDepthOf(node: TreeNode): number {
   return 1 + Math.max(treeDepthOf(node.left), treeDepthOf(node.right))
 }
 
-// ─── Regression trees (1-D x → continuous y) ─────────────────────────
+// ─── Regression trees (p-D x → continuous y) ─────────────────────────
 
-export type RegPoint = { x: number; y: number }
+export type RegPoint = { x: number[]; y: number }
 
 export type RegNode =
   | { kind: 'leaf'; value: number; n: number; depth: number }
   | {
       kind: 'split'
+      feature: number
       threshold: number
       left: RegNode
       right: RegNode
@@ -359,9 +360,11 @@ function sse(points: RegPoint[]): number {
 }
 
 /**
- * Greedy regression tree splitting on variance reduction (equivalently, the
- * largest drop in total squared error). Each leaf predicts the mean target
- * of the points that reach it, so the tree is a piecewise-constant function.
+ * Greedy regression tree splitting on variance reduction (the largest drop in
+ * total squared error), across all features. Each leaf predicts the mean
+ * target of the points that reach it, so the tree is a piecewise-constant
+ * function — and the weak learner of a gradient-boosting ensemble. The
+ * threshold sweep maintains running sums so each feature costs O(n log n).
  */
 export function buildRegressionTree(
   points: RegPoint[],
@@ -374,27 +377,50 @@ export function buildRegressionTree(
   const leaf = (): RegNode => ({ kind: 'leaf', value, n, depth })
   if (depth >= maxDepth || n < 2 * minLeaf || sse(points) < 1e-9) return leaf()
 
-  const sorted = points.slice().sort((a, b) => a.x - b.x)
+  const p = points[0].x.length
   const parentSse = sse(points)
-  let best: { threshold: number; reduction: number } | null = null
-  for (let i = 0; i < n - 1; i++) {
-    const nLeft = i + 1
-    const nRight = n - nLeft
-    if (sorted[i].x === sorted[i + 1].x) continue
-    if (nLeft < minLeaf || nRight < minLeaf) continue
-    const left = sorted.slice(0, nLeft)
-    const right = sorted.slice(nLeft)
-    const reduction = parentSse - sse(left) - sse(right)
-    if (best === null || reduction > best.reduction) {
-      best = { threshold: (sorted[i].x + sorted[i + 1].x) / 2, reduction }
+  let best: { feature: number; threshold: number; reduction: number } | null = null
+
+  for (let f = 0; f < p; f++) {
+    const sorted = points.slice().sort((a, b) => a.x[f] - b.x[f])
+    let sumL = 0
+    let sqL = 0
+    let sumR = 0
+    let sqR = 0
+    for (const pt of sorted) {
+      sumR += pt.y
+      sqR += pt.y * pt.y
+    }
+    let nL = 0
+    for (let i = 0; i < n - 1; i++) {
+      const yv = sorted[i].y
+      sumL += yv
+      sqL += yv * yv
+      sumR -= yv
+      sqR -= yv * yv
+      nL++
+      const nR = n - nL
+      if (sorted[i].x[f] === sorted[i + 1].x[f]) continue
+      if (nL < minLeaf || nR < minLeaf) continue
+      const sseL = sqL - (sumL * sumL) / nL
+      const sseR = sqR - (sumR * sumR) / nR
+      const reduction = parentSse - sseL - sseR
+      if (best === null || reduction > best.reduction) {
+        best = {
+          feature: f,
+          threshold: (sorted[i].x[f] + sorted[i + 1].x[f]) / 2,
+          reduction,
+        }
+      }
     }
   }
   if (!best || best.reduction <= 1e-9) return leaf()
 
-  const left = points.filter((p) => p.x < best!.threshold)
-  const right = points.filter((p) => p.x >= best!.threshold)
+  const left = points.filter((pt) => pt.x[best!.feature] < best!.threshold)
+  const right = points.filter((pt) => pt.x[best!.feature] >= best!.threshold)
   return {
     kind: 'split',
+    feature: best.feature,
     threshold: best.threshold,
     left: buildRegressionTree(left, maxDepth, minLeaf, depth + 1),
     right: buildRegressionTree(right, maxDepth, minLeaf, depth + 1),
@@ -403,10 +429,10 @@ export function buildRegressionTree(
   }
 }
 
-export function predictReg(node: RegNode, x: number): number {
+export function predictReg(node: RegNode, x: number[]): number {
   let cur = node
   while (cur.kind === 'split') {
-    cur = x < cur.threshold ? cur.left : cur.right
+    cur = x[cur.feature] < cur.threshold ? cur.left : cur.right
   }
   return cur.value
 }

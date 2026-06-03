@@ -1,0 +1,820 @@
+import ResidualBoosting from '@/components/ResidualBoosting'
+import LearningRate from '@/components/LearningRate'
+import OverfitEarlyStop from '@/components/OverfitEarlyStop'
+import BoostingBoundary from '@/components/BoostingBoundary'
+import PyodideEditor from '@/components/PyodideEditor'
+
+export const metadata = {
+  title: 'Gradient boosting',
+  description:
+    'Building a strong predictor from weak ones, one correction at a time. Fitting residuals, gradient descent in function space, shrinkage and early stopping, and the contrast with random forests — with four interactive visualisations, runnable Python, and five problems.',
+  openGraph: {
+    title: 'Gradient boosting',
+    description:
+      'An interactive walk-through of gradient boosting — fitting residuals, function-space gradient descent, shrinkage, early stopping, and boosting versus bagging.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 14 · Part IV — Tree-based models
+</p>
+
+# Gradient boosting
+
+*Building a strong predictor from weak ones, one correction at a time —
+the model that wins on tabular data, and the gradient descent of Chapter 6
+wearing a disguise.*
+
+A good student does not reread the entire syllabus before each exam. They
+pull out the questions they got wrong last time and study *those* —
+correcting one specific weakness, then the next, then the next, until the
+mistakes run out. Gradient boosting is that habit turned into an algorithm.
+It builds its prediction not all at once but as a long sum of small
+corrections, and each correction is a little model trained on exactly the
+errors the sum has made so far.
+
+This is the mirror image of the last chapter. A random forest grows
+hundreds of trees in parallel, each blind to the others, and averages their
+votes to cancel out *variance*. Boosting grows its trees in strict
+sequence, each one trained on the residual mistakes of all the trees before
+it, and adds them up to cancel out *bias*. Same humble building block — a
+small decision tree — assembled by opposite philosophies, and the assembly
+matters as much as the block.
+
+By the end you will have watched a row of stumps converge on a curve no
+single stump could fit, seen that fitting residuals is quietly the gradient
+descent of Chapter 6 wearing a disguise, and learned why a boosted model,
+unlike a forest, must be told when to stop.
+
+## 1. Learning from your mistakes
+
+Every model so far has been fit *once*. Linear regression solves for its
+weights; a tree grows greedily to completion; a forest trains its trees
+independently and stops. Boosting fits its model *in stages*, and each stage
+exists only to fix what the previous stages got wrong. It is the first
+genuinely sequential algorithm in the book, and the sequence is the idea.
+
+Picture the simplest possible predictor for a regression problem: ignore
+the inputs entirely and always guess the average of the targets. That guess
+is wrong for almost every point, by an amount we call the *residual*. Now
+ask a small, weak model to predict those residuals — not the targets, the
+*errors*. Add its predictions to the running guess, and the running guess
+gets a little less wrong. Recompute the residuals, fit another weak model to
+those, add it in, and repeat. Each weak model patches the leftover error of
+the ensemble so far, and the sum of many patches becomes a strong predictor.
+
+The trick is that the weak models can be genuinely weak — shallow trees,
+barely better than guessing — and still, summed in sequence, fit functions
+none of them could touch alone. Let's watch it happen.
+
+## 2. The additive model
+
+Formally, boosting builds the prediction as a sum:
+
+$$F_M(x) = F_0(x) + \sum_{m=1}^{M} \nu\, h_m(x).$$
+
+$F_0$ is the trivial starting prediction — the mean of the targets, for
+regression. Each $h_m$ is a *weak learner*, a small tree, and $\nu$ is a
+shrinkage factor we will get to in §5 (take it as 1 for now). The model is
+*additive* and grown *stagewise*: once a tree $h_m$ is placed it is never
+revised; the next tree only ever adds a new correction on top.
+
+That single design choice — never revise, only append — is what makes
+boosting both powerful and dangerous. Powerful, because each tree can focus
+entirely on the current weakness without disturbing the work already done.
+Dangerous, because nothing stops the sequence from continuing past the point
+of usefulness and beginning to fit noise. We will meet both faces.
+
+The only thing left to specify is how each $h_m$ is chosen. The answer is
+disarmingly simple: fit it to the residuals.
+
+## 3. Fitting the residuals
+
+Here is the algorithm in full, for squared-error regression. Initialise
+$F_0(x) = \bar{y}$. Then for each round $m = 1, 2, \dots, M$:
+
+1. Compute the residuals $r_i = y_i - F_{m-1}(x_i)$ for every training point.
+2. Fit a small regression tree $h_m$ to predict those residuals.
+3. Update: $F_m(x) = F_{m-1}(x) + \nu\, h_m(x)$.
+
+That is the entire method. Each tree is trained on the *current* errors, so
+each round chips away at whatever the ensemble still gets wrong.
+
+The widget below shows it round by round. The top panel is the data, the
+true curve (dashed), and the ensemble's prediction — a flat line at the mean
+to start. The bottom panel is the residuals, the part each point still gets
+wrong, with the next little tree drawn straight through them.
+
+<ResidualBoosting />
+
+Press Play, or add trees one at a time. Each tree the ensemble adds is the
+tree you see fit through the residuals below — its correction is folded into
+the prediction above, and the residual cloud collapses a little closer to
+the zero line. After a few dozen rounds, a stack of shallow trees that could
+each only manage a single step has, between them, traced out the whole
+curve. The residuals are what carry the information from one round to the
+next, and watching them shrink is watching the model learn.
+
+## 4. Boosting is gradient descent in function space
+
+The word *gradient* has not appeared yet, but it has been there all along.
+For squared-error loss $L = \tfrac12 (y - F)^2$, the derivative with respect
+to the prediction $F$ is
+
+$$\frac{\partial L}{\partial F} = -(y - F) = -\,r.$$
+
+The residual $r$ is exactly the *negative gradient* of the loss with respect
+to the model's output. So "fit a tree to the residuals" is "fit a tree to
+the negative gradient" — and adding a small multiple of it to $F$ is a step
+in the downhill direction. Boosting is gradient descent, the algorithm of
+Chapter 6, except the thing being optimised is not a vector of parameters
+$\theta$ but the *function* $F$ itself, and each step is a whole tree rather
+than a tweak to a coordinate.
+
+This reframing is what gives the method its name and its reach. Squared
+error has the residual as its gradient, but *any* differentiable loss has a
+gradient, and the recipe generalises by fitting each tree to the negative
+gradient — the *pseudo-residuals* — instead of the raw error. For
+classification we will use the logistic loss of Chapter 7, whose
+pseudo-residual is the clean $y_i - p_i$. The same machinery boosts
+regression, classification, ranking, and more, by swapping the loss and
+reading off its gradient. Boosting is not a trick for one problem; it is
+gradient descent wearing a tree for a step size.
+
+## 5. Shrinkage: the learning rate
+
+There is one knob between the bare algorithm and a good one, and it matters
+more than its plainness suggests. Instead of adding each tree at full
+strength, scale it down by a *learning rate* $\nu$ — typically 0.1 — so each
+correction is a fraction of what the tree proposed:
+
+$$F_m(x) = F_{m-1}(x) + \nu\, h_m(x).$$
+
+Shrinking every step sounds like pure loss — you need many more trees to
+cover the same ground — but it reliably improves generalisation. The reason
+is the same as for the learning rate in Chapter 6: many small, cautious
+steps land in a better place than a few large, greedy ones. A large $\nu$
+lets each tree overfit its slice of the residuals and lurch the ensemble
+around; a small $\nu$ averages many gentle corrections into a smoother fit.
+
+The widget fixes the number of trees at sixty and lets you vary $\nu$.
+
+<LearningRate />
+
+At a tiny $\nu$ the sixty steps are so timid the fit has barely left the
+flat mean line — it underfits, high bias, the trees never allowed to do
+their work. Crank $\nu$ toward one and each tree slams in at full strength;
+the fit turns jagged, lunging at individual points, overfitting the noise.
+Around $\nu = 0.1$ the small steps accumulate into a clean track of the true
+curve. Shrinkage is boosting's main regulariser, and the trade it governs —
+small $\nu$ and many trees, versus large $\nu$ and few — is the first thing
+to tune. Smaller is almost always better, if you can afford the trees.
+
+## 6. Weak learners, and the contrast with forests
+
+It is worth pausing on *why* the trees in a boosted ensemble are kept
+shallow — often just stumps (depth 1) or trees of depth two or three. A
+shallow tree is a *weak learner*: high bias, low variance, barely better
+than the mean on its own. That is exactly what boosting wants, because the
+sequence is responsible for reducing bias — each tree only needs to capture
+a little more structure than the last, and a weak tree captures a little
+without overcommitting. Use deep trees and each one fits the residuals
+almost perfectly in one shot, leaving nothing for the sequence to do and
+overfitting immediately.
+
+This is the precise inverse of a random forest, and the contrast is the
+heart of Part IV. A forest *averages deep, low-bias/high-variance trees* to
+drive down variance; boosting *sums shallow, high-bias/low-variance trees*
+to drive down bias. Same building block, opposite ends of the bias–variance
+trade, opposite ways of combining. It is also why a forest is embarrassingly
+parallel — its trees are independent — while boosting is stubbornly
+sequential: tree $m$ cannot be built until tree $m-1$ has defined the
+residuals it must fit.
+
+There is a direct practical consequence, and it is the subject of the next
+section. Because a forest only averages, adding trees can never hurt it.
+Because boosting keeps *correcting*, adding trees eventually starts
+correcting noise — and a boosted model, unlike a forest, can overfit.
+
+## 7. Boosting can overfit: early stopping
+
+Run boosting too long and the inevitable happens. The training residuals can
+always be driven lower — there is always some pattern in them, even if it is
+only noise — so training error falls without limit. But the held-out error
+tells the truth: it falls while the trees are capturing real structure,
+bottoms out, and then climbs as the trees begin memorising the training
+noise. The familiar overfitting U, now plotted against the number of trees.
+
+<OverfitEarlyStop />
+
+The grey curve (training error) sinks steadily; the teal curve (held-out
+error) reaches a minimum and turns back up. The minimum — marked — is the
+right number of trees, and the standard recipe for finding it is *early
+stopping*: hold out a validation set, watch its error as trees are added,
+and stop when it stops improving. This is the cross-validation discipline of
+Chapter 11 applied to the one hyperparameter boosting cannot do without.
+Lower the learning rate and the minimum slides to the right and downward —
+more trees, but a better model — the shrinkage trade of §5 made visible.
+
+Set this against Chapter 13's forest, whose accuracy climbed and then simply
+*plateaued*: more trees were never a risk, only diminishing returns. The
+boosting curve has a genuine bottom you can overshoot. Power and danger from
+the same source — the relentless correcting — and early stopping is how you
+collect the power without the danger.
+
+## 8. Classification, stochastic boosting, and the libraries that won
+
+Three loose ends tie the chapter to practice.
+
+**Classification.** Nothing fundamental changes; only the loss does. Model
+the log-odds additively, $F(x) = \log\frac{P(y=1\mid x)}{P(y=0\mid x)}$, use
+the logistic loss of Chapter 7, and its pseudo-residual is the clean
+probability error $y_i - p_i$, with $p_i = \sigma(F(x_i))$. Each round fits a
+tree to that error and adds it to the log-odds. The widget boosts a
+classifier on the moons.
+
+<BoostingBoundary />
+
+With weak-learner depth 1, the first tree is a single crude cut and the
+boundary is nearly useless; add trees and watch it *build*, each stump
+bending the boundary a little more around the two arcs, the probabilities
+hardening from the well-separated regions inward. Set this beside the memory
+of Chapter 13's forest, which averaged hundreds of independent trees into a
+smooth boundary all at once: boosting assembles its boundary one deliberate
+correction at a time.
+
+**Stochastic boosting.** Borrowing the forest's trick, fit each tree on a
+random subsample of the rows (and optionally the features). This *stochastic
+gradient boosting* both speeds training and acts as a regulariser, injecting
+the same diversity that helped the forest. It is on by default in every
+serious implementation.
+
+**The libraries that won.** Modern gradient boosting — **XGBoost**,
+**LightGBM**, **CatBoost** — is this chapter's algorithm with three upgrades:
+second-order (Newton) steps that use the loss's curvature as well as its
+gradient, explicit regularisation on tree size and leaf values, and
+histogram-binned splits that make training fast on millions of rows. The
+result is the model that, more than any other, wins competitions and quietly
+runs in production on tabular data. "Just use gradient boosting" is the
+single most reliable piece of practical advice in applied machine learning,
+and now you know what it is doing.
+
+## 9. Complexity
+
+**Training.** Boosting is inherently *sequential* — tree $m$ needs the
+residuals defined by trees $1 \dots m-1$ — so, unlike a forest, it does not
+parallelise across trees. Building $M$ trees of depth $d$ on $n$ points costs
+roughly $O(M\, d\, n \log n)$ for the exact split search, which the
+histogram trick of the libraries cuts to about $O(M\, d\, n)$. The shallow
+trees keep each round cheap; it is the number of rounds, often thousands,
+that dominates.
+
+**Prediction.** A point is pushed through all $M$ trees and the corrections
+summed: $M \times O(d)$, the same form as a forest of the same size, and very
+fast since $d$ is small.
+
+**Memory.** $M$ shallow trees — typically far smaller than a forest of $M$
+deep ones, which is one reason boosted models deploy so comfortably.
+
+## 10. Implementing it yourself
+
+Gradient boosting for regression, reusing a small regression tree, in about
+thirty-five lines.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+# 1-D regression: the smooth curve from Chapter 9, with noise.
+rng = np.random.default_rng(3)
+n = 80
+X = np.linspace(-1, 1, n)
+y = 0.7 * np.sin(np.pi * X) + 0.22 * np.sin(2.5 * np.pi * X) + rng.normal(0, 0.2, n)
+
+# A small regression tree: split on variance reduction, leaf = mean.
+class Node: pass
+def fit_tree(x, r, depth, max_depth, min_leaf=3):
+    nd = Node(); nd.value = r.mean(); nd.leaf = True
+    if depth >= max_depth or len(r) < 2 * min_leaf or np.var(r) < 1e-9:
+        return nd
+    o = np.argsort(x); xs, rs = x[o], r[o]; m = len(r)
+    parent = np.sum((r - r.mean()) ** 2); best = None
+    sumL = sqL = 0.0; sumR = rs.sum(); sqR = (rs ** 2).sum(); nL = 0
+    for i in range(m - 1):
+        v = rs[i]; sumL += v; sqL += v * v; sumR -= v; sqR -= v * v; nL += 1; nR = m - nL
+        if xs[i] == xs[i + 1] or nL < min_leaf or nR < min_leaf:
+            continue
+        red = parent - (sqL - sumL * sumL / nL) - (sqR - sumR * sumR / nR)
+        if best is None or red > best[0]:
+            best = (red, (xs[i] + xs[i + 1]) / 2)
+    if best is None or best[0] <= 1e-9:
+        return nd
+    nd.leaf = False; nd.threshold = best[1]
+    msk = x < nd.threshold
+    nd.left = fit_tree(x[msk], r[msk], depth + 1, max_depth, min_leaf)
+    nd.right = fit_tree(x[~msk], r[~msk], depth + 1, max_depth, min_leaf)
+    return nd
+def pred_tree(nd, xi):
+    while not nd.leaf:
+        nd = nd.left if xi < nd.threshold else nd.right
+    return nd.value
+
+def gradient_boost(X, y, n_trees, lr, max_depth=2):
+    init = y.mean(); F = np.full(len(y), init); trees = []
+    for _ in range(n_trees):
+        tree = fit_tree(X, y - F, 0, max_depth)        # fit to residuals
+        trees.append(tree)
+        F += lr * np.array([pred_tree(tree, xi) for xi in X])
+    return init, trees
+
+def gb_predict(init, trees, lr, X):
+    F = np.full(len(X), init)
+    for t in trees:
+        F += lr * np.array([pred_tree(t, xi) for xi in X])
+    return F
+
+init, trees = gradient_boost(X, y, 40, lr=0.3, max_depth=2)
+for B in [1, 5, 10, 20, 40]:
+    p = gb_predict(init, trees[:B], 0.3, X)
+    print(f"{B:2d} trees: training MSE = {np.mean((p - y) ** 2):.4f}")
+`}
+/>
+
+Thirty-five lines, and the boosting itself is the five-line \`gradient_boost\`
+loop: fit a tree to the residuals, shrink it, add it. Everything else is the
+Chapter-12 regression tree. The training error falls smoothly as the stack of
+stumps converges on the curve — and the only thing standing between this and
+XGBoost is speed, regularisation, and a second-order step.
+
+## 11. Problems
+
+### Problem 1 — Sum versus average
+
+A conceptual question. A random forest *averages* many deep trees; gradient
+boosting *sums* many shallow ones. (a) Map each onto the bias–variance
+decomposition: which quantity does each ensemble primarily reduce, and why
+does the choice of deep versus shallow trees follow from that? (b) Explain
+why adding more trees can never hurt a forest's generalisation but can wreck
+a boosted model's.
+
+<details>
+  <summary>Show solution</summary>
+
+**(a)** A deep tree has *low bias* (it can fit almost anything) but *high
+variance* (it is at the mercy of the particular sample). Averaging many
+roughly-independent such trees leaves the low bias untouched and cancels the
+variance — so a forest is a *variance-reduction* machine, and it needs deep,
+low-bias trees for there to be little bias left after averaging. A shallow
+tree is the opposite: *high bias, low variance*. Summing many of them in
+sequence, each correcting the last, drives the *bias* down round by round —
+so boosting is a *bias-reduction* machine, and it needs weak, low-variance
+trees so the sequence (not any single tree) does the fitting and nothing
+overfits prematurely.
+
+**(b)** A forest only ever *averages* fixed, independently-trained trees;
+adding another tree just refines the average toward its expectation, which
+cannot increase the true error — only diminishing returns. Boosting instead
+keeps *correcting the residuals*, and once the real structure is captured the
+only thing left in the residuals is noise. Further trees fit that noise, the
+held-out error turns up, and the model overfits. Correcting is more powerful
+than averaging, and more dangerous; hence early stopping.
+
+</details>
+
+### Problem 2 — One round of residual fitting
+
+Take the constant model (predict the mean), compute its residuals, fit a
+single shallow tree to them, and confirm the residuals shrink — the training
+error drops in one round.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+n = 80
+X = np.linspace(-1, 1, n)
+y = 0.7 * np.sin(np.pi * X) + rng.normal(0, 0.15, n)
+
+class Node: pass
+def fit_tree(x, r, depth, max_depth, min_leaf=4):
+    nd = Node(); nd.value = r.mean(); nd.leaf = True
+    if depth >= max_depth or len(r) < 2 * min_leaf or np.var(r) < 1e-9:
+        return nd
+    o = np.argsort(x); xs, rs = x[o], r[o]; m = len(r)
+    parent = np.sum((r - r.mean()) ** 2); best = None
+    sumL = sqL = 0.0; sumR = rs.sum(); sqR = (rs ** 2).sum(); nL = 0
+    for i in range(m - 1):
+        v = rs[i]; sumL += v; sqL += v * v; sumR -= v; sqR -= v * v; nL += 1; nR = m - nL
+        if xs[i] == xs[i + 1] or nL < min_leaf or nR < min_leaf: continue
+        red = parent - (sqL - sumL * sumL / nL) - (sqR - sumR * sumR / nR)
+        if best is None or red > best[0]: best = (red, (xs[i] + xs[i + 1]) / 2)
+    if best is None or best[0] <= 1e-9: return nd
+    nd.leaf = False; nd.threshold = best[1]
+    msk = x < nd.threshold
+    nd.left = fit_tree(x[msk], r[msk], depth + 1, max_depth, min_leaf)
+    nd.right = fit_tree(x[~msk], r[~msk], depth + 1, max_depth, min_leaf)
+    return nd
+def pred_tree(nd, xi):
+    while not nd.leaf: nd = nd.left if xi < nd.threshold else nd.right
+    return nd.value
+
+# Your code:
+#   1. F0 = the mean of y. Print its MSE against y.
+#   2. residuals = y - F0; fit a depth-2 tree to (X, residuals).
+#   3. F1 = F0 + tree(X); print F1's MSE. It should be lower.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+n = 80
+X = np.linspace(-1, 1, n)
+y = 0.7 * np.sin(np.pi * X) + rng.normal(0, 0.15, n)
+
+class Node: pass
+def fit_tree(x, r, depth, max_depth, min_leaf=4):
+    nd = Node(); nd.value = r.mean(); nd.leaf = True
+    if depth >= max_depth or len(r) < 2 * min_leaf or np.var(r) < 1e-9:
+        return nd
+    o = np.argsort(x); xs, rs = x[o], r[o]; m = len(r)
+    parent = np.sum((r - r.mean()) ** 2); best = None
+    sumL = sqL = 0.0; sumR = rs.sum(); sqR = (rs ** 2).sum(); nL = 0
+    for i in range(m - 1):
+        v = rs[i]; sumL += v; sqL += v * v; sumR -= v; sqR -= v * v; nL += 1; nR = m - nL
+        if xs[i] == xs[i + 1] or nL < min_leaf or nR < min_leaf: continue
+        red = parent - (sqL - sumL * sumL / nL) - (sqR - sumR * sumR / nR)
+        if best is None or red > best[0]: best = (red, (xs[i] + xs[i + 1]) / 2)
+    if best is None or best[0] <= 1e-9: return nd
+    nd.leaf = False; nd.threshold = best[1]
+    msk = x < nd.threshold
+    nd.left = fit_tree(x[msk], r[msk], depth + 1, max_depth, min_leaf)
+    nd.right = fit_tree(x[~msk], r[~msk], depth + 1, max_depth, min_leaf)
+    return nd
+def pred_tree(nd, xi):
+    while not nd.leaf: nd = nd.left if xi < nd.threshold else nd.right
+    return nd.value
+
+F0 = np.full(n, y.mean())
+print(f"constant model MSE:        {np.mean((F0 - y) ** 2):.4f}")
+
+resid = y - F0
+tree = fit_tree(X, resid, 0, max_depth=2)
+F1 = F0 + np.array([pred_tree(tree, xi) for xi in X])
+print(f"after one tree, MSE:       {np.mean((F1 - y) ** 2):.4f}")
+print(f"residual variance dropped: {np.var(resid):.4f} -> {np.var(y - F1):.4f}")
+`}
+/>
+
+The constant model's MSE is just the variance of $y$. One depth-2 tree fit
+to the residuals carves the input into a few regions and shifts each toward
+its local mean, and the MSE drops immediately. That single round is the whole
+of boosting in miniature — the rest is repetition.
+
+</details>
+
+### Problem 3 — Gradient boosting from scratch
+
+Wrap the round into a loop: initialise at the mean, then repeatedly fit a
+shallow tree to the residuals and add a shrunk copy. Report the training MSE
+as trees accumulate.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(3)
+n = 80
+X = np.linspace(-1, 1, n)
+y = 0.7 * np.sin(np.pi * X) + 0.22 * np.sin(2.5 * np.pi * X) + rng.normal(0, 0.2, n)
+
+class Node: pass
+def fit_tree(x, r, depth, max_depth, min_leaf=3):
+    nd = Node(); nd.value = r.mean(); nd.leaf = True
+    if depth >= max_depth or len(r) < 2 * min_leaf or np.var(r) < 1e-9: return nd
+    o = np.argsort(x); xs, rs = x[o], r[o]; m = len(r)
+    parent = np.sum((r - r.mean()) ** 2); best = None
+    sumL = sqL = 0.0; sumR = rs.sum(); sqR = (rs ** 2).sum(); nL = 0
+    for i in range(m - 1):
+        v = rs[i]; sumL += v; sqL += v * v; sumR -= v; sqR -= v * v; nL += 1; nR = m - nL
+        if xs[i] == xs[i + 1] or nL < min_leaf or nR < min_leaf: continue
+        red = parent - (sqL - sumL * sumL / nL) - (sqR - sumR * sumR / nR)
+        if best is None or red > best[0]: best = (red, (xs[i] + xs[i + 1]) / 2)
+    if best is None or best[0] <= 1e-9: return nd
+    nd.leaf = False; nd.threshold = best[1]; msk = x < nd.threshold
+    nd.left = fit_tree(x[msk], r[msk], depth + 1, max_depth, min_leaf)
+    nd.right = fit_tree(x[~msk], r[~msk], depth + 1, max_depth, min_leaf)
+    return nd
+def pred_tree(nd, xi):
+    while not nd.leaf: nd = nd.left if xi < nd.threshold else nd.right
+    return nd.value
+
+# Your code: write gradient_boost(X, y, n_trees, lr, max_depth) that returns
+# (init, trees), then print training MSE at 1, 5, 20, 50 trees with lr=0.3.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(3)
+n = 80
+X = np.linspace(-1, 1, n)
+y = 0.7 * np.sin(np.pi * X) + 0.22 * np.sin(2.5 * np.pi * X) + rng.normal(0, 0.2, n)
+
+class Node: pass
+def fit_tree(x, r, depth, max_depth, min_leaf=3):
+    nd = Node(); nd.value = r.mean(); nd.leaf = True
+    if depth >= max_depth or len(r) < 2 * min_leaf or np.var(r) < 1e-9: return nd
+    o = np.argsort(x); xs, rs = x[o], r[o]; m = len(r)
+    parent = np.sum((r - r.mean()) ** 2); best = None
+    sumL = sqL = 0.0; sumR = rs.sum(); sqR = (rs ** 2).sum(); nL = 0
+    for i in range(m - 1):
+        v = rs[i]; sumL += v; sqL += v * v; sumR -= v; sqR -= v * v; nL += 1; nR = m - nL
+        if xs[i] == xs[i + 1] or nL < min_leaf or nR < min_leaf: continue
+        red = parent - (sqL - sumL * sumL / nL) - (sqR - sumR * sumR / nR)
+        if best is None or red > best[0]: best = (red, (xs[i] + xs[i + 1]) / 2)
+    if best is None or best[0] <= 1e-9: return nd
+    nd.leaf = False; nd.threshold = best[1]; msk = x < nd.threshold
+    nd.left = fit_tree(x[msk], r[msk], depth + 1, max_depth, min_leaf)
+    nd.right = fit_tree(x[~msk], r[~msk], depth + 1, max_depth, min_leaf)
+    return nd
+def pred_tree(nd, xi):
+    while not nd.leaf: nd = nd.left if xi < nd.threshold else nd.right
+    return nd.value
+
+def gradient_boost(X, y, n_trees, lr, max_depth=2):
+    init = y.mean(); F = np.full(len(y), init); trees = []
+    for _ in range(n_trees):
+        tree = fit_tree(X, y - F, 0, max_depth)
+        trees.append(tree)
+        F += lr * np.array([pred_tree(tree, xi) for xi in X])
+    return init, trees
+
+def gb_predict(init, trees, lr, X):
+    F = np.full(len(X), init)
+    for t in trees: F += lr * np.array([pred_tree(t, xi) for xi in X])
+    return F
+
+init, trees = gradient_boost(X, y, 50, lr=0.3)
+for B in [1, 5, 20, 50]:
+    p = gb_predict(init, trees[:B], 0.3, X)
+    print(f"{B:2d} trees: training MSE = {np.mean((p - y) ** 2):.4f}")
+`}
+/>
+
+The loop is the whole algorithm: residuals, tree, shrink, add. The MSE falls
+fast at first — the early trees catch the big structure — then more slowly as
+later trees chip at finer detail. With \`lr=0.3\` it reaches a good fit in a
+few dozen trees; halve the rate and you would need twice as many.
+
+</details>
+
+### Problem 4 — Learning rate and early stopping
+
+For two learning rates, track the *held-out* error as trees are added, and
+report each one's early-stopping round (the test-error minimum). Smaller $\nu$
+should reach a lower minimum, later.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(3)
+n = 80
+X = np.linspace(-1, 1, n)
+def make(seed): 
+    r = np.random.default_rng(seed)
+    return 0.7*np.sin(np.pi*X) + 0.22*np.sin(2.5*np.pi*X) + r.normal(0, 0.22, n)
+y, yte = make(3), make(8)
+
+class Node: pass
+def fit_tree(x, r, depth, max_depth, min_leaf=3):
+    nd = Node(); nd.value = r.mean(); nd.leaf = True
+    if depth >= max_depth or len(r) < 2 * min_leaf or np.var(r) < 1e-9: return nd
+    o = np.argsort(x); xs, rs = x[o], r[o]; m = len(r)
+    parent = np.sum((r - r.mean()) ** 2); best = None
+    sumL = sqL = 0.0; sumR = rs.sum(); sqR = (rs ** 2).sum(); nL = 0
+    for i in range(m - 1):
+        v = rs[i]; sumL += v; sqL += v * v; sumR -= v; sqR -= v * v; nL += 1; nR = m - nL
+        if xs[i] == xs[i + 1] or nL < min_leaf or nR < min_leaf: continue
+        red = parent - (sqL - sumL * sumL / nL) - (sqR - sumR * sumR / nR)
+        if best is None or red > best[0]: best = (red, (xs[i] + xs[i + 1]) / 2)
+    if best is None or best[0] <= 1e-9: return nd
+    nd.leaf = False; nd.threshold = best[1]; msk = x < nd.threshold
+    nd.left = fit_tree(x[msk], r[msk], depth + 1, max_depth, min_leaf)
+    nd.right = fit_tree(x[~msk], r[~msk], depth + 1, max_depth, min_leaf)
+    return nd
+def pred_tree(nd, xi):
+    while not nd.leaf: nd = nd.left if xi < nd.threshold else nd.right
+    return nd.value
+
+# Your code:
+#   For lr in [0.05, 0.3], boost 120 trees, and at each round compute the
+#   held-out MSE on (X, yte). Report the round of minimum held-out MSE.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(3)
+n = 80
+X = np.linspace(-1, 1, n)
+def make(seed):
+    r = np.random.default_rng(seed)
+    return 0.7*np.sin(np.pi*X) + 0.22*np.sin(2.5*np.pi*X) + r.normal(0, 0.22, n)
+y, yte = make(3), make(8)
+
+class Node: pass
+def fit_tree(x, r, depth, max_depth, min_leaf=3):
+    nd = Node(); nd.value = r.mean(); nd.leaf = True
+    if depth >= max_depth or len(r) < 2 * min_leaf or np.var(r) < 1e-9: return nd
+    o = np.argsort(x); xs, rs = x[o], r[o]; m = len(r)
+    parent = np.sum((r - r.mean()) ** 2); best = None
+    sumL = sqL = 0.0; sumR = rs.sum(); sqR = (rs ** 2).sum(); nL = 0
+    for i in range(m - 1):
+        v = rs[i]; sumL += v; sqL += v * v; sumR -= v; sqR -= v * v; nL += 1; nR = m - nL
+        if xs[i] == xs[i + 1] or nL < min_leaf or nR < min_leaf: continue
+        red = parent - (sqL - sumL * sumL / nL) - (sqR - sumR * sumR / nR)
+        if best is None or red > best[0]: best = (red, (xs[i] + xs[i + 1]) / 2)
+    if best is None or best[0] <= 1e-9: return nd
+    nd.leaf = False; nd.threshold = best[1]; msk = x < nd.threshold
+    nd.left = fit_tree(x[msk], r[msk], depth + 1, max_depth, min_leaf)
+    nd.right = fit_tree(x[~msk], r[~msk], depth + 1, max_depth, min_leaf)
+    return nd
+def pred_tree(nd, xi):
+    while not nd.leaf: nd = nd.left if xi < nd.threshold else nd.right
+    return nd.value
+
+for lr in [0.05, 0.3]:
+    F = np.full(n, y.mean()); test_mse = []
+    for _ in range(120):
+        tree = fit_tree(X, y - F, 0, max_depth=2)
+        F += lr * np.array([pred_tree(tree, xi) for xi in X])
+        # held-out error (same X grid, fresh-noise targets yte)
+        test_mse.append(np.mean((F - yte) ** 2))
+    best = int(np.argmin(test_mse))
+    print(f"lr={lr}: early stop at {best + 1:3d} trees, held-out MSE = {test_mse[best]:.4f}")
+`}
+/>
+
+The small rate stops far later and at a lower error — patient steps reach a
+better minimum, but you pay in trees. This is exactly the validation-curve
+procedure of Chapter 11, specialised to boosting's one indispensable
+hyperparameter: in practice you set $\nu$ small, boost with a held-out set
+watching, and stop the moment it stops improving.
+
+</details>
+
+### Problem 5 — Boosting versus bagging
+
+The Part IV capstone. Train both ensembles on the same data — boosting
+(sequential, shallow trees) and bagging (parallel, deep trees) — and compare
+how their held-out error behaves as trees are added. One has a bottom you can
+overshoot; the other does not.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(3)
+n = 80
+X = np.linspace(-1, 1, n)
+def make(seed):
+    r = np.random.default_rng(seed)
+    return 0.7*np.sin(np.pi*X) + 0.22*np.sin(2.5*np.pi*X) + r.normal(0, 0.2, n)
+y, yte = make(3), make(8)
+
+class Node: pass
+def fit_tree(x, r, depth, max_depth, min_leaf=3):
+    nd = Node(); nd.value = r.mean(); nd.leaf = True
+    if depth >= max_depth or len(r) < 2 * min_leaf or np.var(r) < 1e-9: return nd
+    o = np.argsort(x); xs, rs = x[o], r[o]; m = len(r)
+    parent = np.sum((r - r.mean()) ** 2); best = None
+    sumL = sqL = 0.0; sumR = rs.sum(); sqR = (rs ** 2).sum(); nL = 0
+    for i in range(m - 1):
+        v = rs[i]; sumL += v; sqL += v * v; sumR -= v; sqR -= v * v; nL += 1; nR = m - nL
+        if xs[i] == xs[i + 1] or nL < min_leaf or nR < min_leaf: continue
+        red = parent - (sqL - sumL * sumL / nL) - (sqR - sumR * sumR / nR)
+        if best is None or red > best[0]: best = (red, (xs[i] + xs[i + 1]) / 2)
+    if best is None or best[0] <= 1e-9: return nd
+    nd.leaf = False; nd.threshold = best[1]; msk = x < nd.threshold
+    nd.left = fit_tree(x[msk], r[msk], depth + 1, max_depth, min_leaf)
+    nd.right = fit_tree(x[~msk], r[~msk], depth + 1, max_depth, min_leaf)
+    return nd
+def pred_tree(nd, xi):
+    while not nd.leaf: nd = nd.left if xi < nd.threshold else nd.right
+    return nd.value
+
+# Provided: boosting (shallow, sequential) and bagging (deep, parallel).
+def boost(X, y, M, lr, max_depth=2):
+    F = np.full(len(y), y.mean()); init = y.mean(); trees = []
+    for _ in range(M):
+        t = fit_tree(X, y - F, 0, max_depth); trees.append(t)
+        F += lr * np.array([pred_tree(t, xi) for xi in X])
+    return init, trees
+def boost_pred(init, trees, lr, X):
+    F = np.full(len(X), init)
+    for t in trees: F += lr * np.array([pred_tree(t, xi) for xi in X])
+    return F
+def bag(X, y, M, max_depth=6, seed=1):
+    r = np.random.default_rng(seed); trees = []
+    for _ in range(M):
+        idx = r.integers(0, len(y), len(y)); trees.append(fit_tree(X[idx], y[idx], 0, max_depth))
+    return trees
+def bag_pred(trees, X):
+    return np.mean([[pred_tree(t, xi) for xi in X] for t in trees], axis=0)
+
+# Your code: for B in [5, 20, 40, 80, 120], print the held-out MSE of the
+# first B boosted trees (lr=0.1) and of B bagged trees. Comment on the shapes.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(3)
+n = 80
+X = np.linspace(-1, 1, n)
+def make(seed):
+    r = np.random.default_rng(seed)
+    return 0.7*np.sin(np.pi*X) + 0.22*np.sin(2.5*np.pi*X) + r.normal(0, 0.2, n)
+y, yte = make(3), make(8)
+
+class Node: pass
+def fit_tree(x, r, depth, max_depth, min_leaf=3):
+    nd = Node(); nd.value = r.mean(); nd.leaf = True
+    if depth >= max_depth or len(r) < 2 * min_leaf or np.var(r) < 1e-9: return nd
+    o = np.argsort(x); xs, rs = x[o], r[o]; m = len(r)
+    parent = np.sum((r - r.mean()) ** 2); best = None
+    sumL = sqL = 0.0; sumR = rs.sum(); sqR = (rs ** 2).sum(); nL = 0
+    for i in range(m - 1):
+        v = rs[i]; sumL += v; sqL += v * v; sumR -= v; sqR -= v * v; nL += 1; nR = m - nL
+        if xs[i] == xs[i + 1] or nL < min_leaf or nR < min_leaf: continue
+        red = parent - (sqL - sumL * sumL / nL) - (sqR - sumR * sumR / nR)
+        if best is None or red > best[0]: best = (red, (xs[i] + xs[i + 1]) / 2)
+    if best is None or best[0] <= 1e-9: return nd
+    nd.leaf = False; nd.threshold = best[1]; msk = x < nd.threshold
+    nd.left = fit_tree(x[msk], r[msk], depth + 1, max_depth, min_leaf)
+    nd.right = fit_tree(x[~msk], r[~msk], depth + 1, max_depth, min_leaf)
+    return nd
+def pred_tree(nd, xi):
+    while not nd.leaf: nd = nd.left if xi < nd.threshold else nd.right
+    return nd.value
+
+def boost(X, y, M, lr, max_depth=2):
+    F = np.full(len(y), y.mean()); init = y.mean(); trees = []
+    for _ in range(M):
+        t = fit_tree(X, y - F, 0, max_depth); trees.append(t)
+        F += lr * np.array([pred_tree(t, xi) for xi in X])
+    return init, trees
+def boost_pred(init, trees, lr, X):
+    F = np.full(len(X), init)
+    for t in trees: F += lr * np.array([pred_tree(t, xi) for xi in X])
+    return F
+def bag(X, y, M, max_depth=6, seed=1):
+    r = np.random.default_rng(seed); trees = []
+    for _ in range(M):
+        idx = r.integers(0, len(y), len(y)); trees.append(fit_tree(X[idx], y[idx], 0, max_depth))
+    return trees
+def bag_pred(trees, X):
+    return np.mean([[pred_tree(t, xi) for xi in X] for t in trees], axis=0)
+
+init, btrees = boost(X, y, 120, lr=0.1)
+gtrees = bag(X, y, 120)
+print(f"{'B':>4s}  {'boosting':>9s}  {'bagging':>8s}")
+for B in [5, 20, 40, 80, 120]:
+    bm = np.mean((boost_pred(init, btrees[:B], 0.1, X) - yte) ** 2)
+    gm = np.mean((bag_pred(gtrees[:B], X) - yte) ** 2)
+    print(f"{B:>4d}  {bm:>9.4f}  {gm:>8.4f}")
+`}
+/>
+
+The two columns have different *shapes*, and that is the lesson. Bagging's
+held-out error drops and then **plateaus** — adding deep, independent trees
+only refines the average, so you can over-build it safely. Boosting's error
+drops faster at first, reaches a **minimum**, and then creeps back up as the
+later trees fit noise — so it must be stopped. Average to be safe; sum to be
+sharp, but know when to quit. That single contrast is the whole of Part IV in
+two columns.
+
+</details>
+
+---
+
+*Next: Chapter 15 — Support vector machines.* Part V leaves ensembles
+behind and returns to a single boundary — but not a casual one. Of all the
+lines that separate the classes, the support vector machine finds the one
+with the widest margin of safety, and the kernel trick lets that straight
+boundary curve.
