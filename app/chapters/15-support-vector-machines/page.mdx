@@ -1,0 +1,682 @@
+import MaxMargin from '@/components/MaxMargin'
+import SoftMargin from '@/components/SoftMargin'
+import HingeLoss from '@/components/HingeLoss'
+import KernelLift from '@/components/KernelLift'
+import KernelBoundary from '@/components/KernelBoundary'
+import PyodideEditor from '@/components/PyodideEditor'
+
+export const metadata = {
+  title: 'Support vector machines',
+  description:
+    'The widest-margin boundary, the support vectors that hold it in place, the soft margin and its C knob, the hinge loss, and the kernel trick that lets a straight boundary curve — with five interactive visualisations, runnable Python, and five problems.',
+  openGraph: {
+    title: 'Support vector machines',
+    description:
+      'An interactive walk-through of SVMs — maximum margins, support vectors, soft margins, the hinge loss, and the kernel trick.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 15 · Part V — More classical models
+</p>
+
+# Support vector machines
+
+*The best boundary, not just a boundary — the line with the widest margin of
+safety, the handful of points that hold it in place, and the kernel trick
+that lets a straight cut curve into any shape you like.*
+
+Picture a straight road you have to paint between two rows of parked cars.
+Plenty of lines would keep you clear of both rows — hug the left, hug the
+right, cut a slight diagonal — and a careless painter might choose any of
+them. But there is exactly one line that runs down the true middle, leaving
+the most clearance on either side, and it is obviously the one you would
+want to drive: the line with the most room to be wrong before you clip a
+mirror.
+
+Chapter 7 was the careless painter. Logistic regression drew *a* boundary
+that separated the classes and stopped, never asking whether some other
+boundary sat more safely between them. The support vector machine asks
+precisely that. Of all the lines that separate the two classes, it finds the
+one with the widest *margin* — the largest gap to the nearest point on
+either side — on the wager that the most cautious boundary is the one most
+likely to survive contact with data it has never seen.
+
+That wager leads somewhere remarkable. We will find that only a handful of
+points — the ones pressed right up against the margin — decide the boundary
+at all; that the search for the widest margin is a clean convex problem with
+a single best answer; and that with one of the most elegant manoeuvres in
+the subject, the *kernel trick*, the very same machinery that draws a
+straight line can be made to draw a circle, a pair of arcs, or almost any
+curve you like — without ever leaving the equation for a line.
+
+## 1. The best line
+
+Every classifier so far has been content to find *a* boundary. The
+perceptron stopped at the first line that separated the data; logistic
+regression settled on the line that maximised the likelihood. Neither asked
+whether the boundary sat *well* — whether it left room on both sides, or
+skimmed perilously close to the nearest points.
+
+But intuitively, room matters. A boundary that passes a hair's breadth from a
+training point is a boundary one noisy measurement away from getting that
+point wrong; a boundary that keeps a wide berth from every point has slack to
+spare. If you believe future data will look roughly like the training data,
+the safest bet is the boundary that is *as far as possible* from the closest
+points of either class. That distance has a name — the **margin** — and
+maximising it is the entire idea of the support vector machine.
+
+This one principle, "widest margin", will carry us through soft margins,
+the hinge loss, and ultimately the kernel trick. Let us make it precise.
+
+## 2. Margin and the widest street
+
+Take a linear boundary, written as $w \cdot x + b = 0$: the set of points
+where the weighted sum is zero, with everything on one side classified
+positive and the other negative, exactly as in Chapter 7. The vector $w$ is
+*perpendicular* to this boundary, and the signed distance from any point $x$
+to it is $(w\cdot x + b)/\lVert w\rVert$.
+
+The **margin** is the distance from the boundary to the *nearest* training
+point. Think of it as the half-width of the widest "street" you can paint
+down the middle of the data without any point falling inside: the boundary is
+the centre line, and the two kerbs are the parallel lines that just touch the
+closest points of each class. Tilt or shift the centre line and the street
+you can fit narrows; the SVM chooses the orientation and position that make
+the street as wide as possible.
+
+<MaxMargin />
+
+Drag the candidate to any orientation other than the SVM's and its best
+possible street is narrower — the maximum-margin boundary really is the
+widest one. Notice, too, how few points actually touch the kerbs.
+
+## 3. Support vectors
+
+Look again at which points sit against the margin. On the maximum-margin
+boundary, only a handful do — and those few are the only points that matter.
+Pick up any of the others and slide it around: as long as it stays off the
+street, the boundary does not move an inch. The optimum is pinned in place
+entirely by the points pressed against its kerbs.
+
+These critical points are the **support vectors**, and the model takes its
+name from them. It is a striking kind of sparsity: a dataset of thousands of
+points may be summarised, for the purpose of drawing the boundary, by a mere
+dozen support vectors — the ones living dangerously on the margin. Everything
+comfortably classified is irrelevant to the fit.
+
+This has two consequences worth holding onto. First, the SVM is robust to the
+bulk of the data — outliers far on the correct side change nothing. Second,
+and we will cash this in later, if only the support vectors matter, then the
+whole model can be written in terms of them — which is exactly the opening
+the kernel trick will walk through.
+
+## 4. The optimisation problem
+
+Let us turn "widest margin" into an equation. There is a redundancy to fix
+first: we can scale $w$ and $b$ by any positive constant without moving the
+boundary $w\cdot x + b = 0$. We use that freedom to *fix the scale* so that
+the closest points satisfy $\lvert w\cdot x + b\rvert = 1$. With that
+convention, every point obeys
+
+$$y_i\,(w\cdot x_i + b) \ge 1,$$
+
+where $y_i = \pm 1$ is the label, and the support vectors meet it with
+equality. The distance from the boundary to those closest points is then
+exactly $1/\lVert w\rVert$, so the margin is $1/\lVert w\rVert$ and the full
+width of the street is $2/\lVert w\rVert$.
+
+Maximising the margin therefore means *minimising* $\lVert w\rVert$. Squaring
+for convenience, the SVM solves
+
+$$\min_{w,\,b}\ \tfrac12 \lVert w\rVert^2 \quad\text{subject to}\quad y_i(w\cdot x_i + b)\ge 1 \ \text{for all } i.$$
+
+This is a **convex quadratic program**: a bowl-shaped objective under linear
+constraints, with a single global optimum and no local minima to trap us —
+the same comforting geometry as the convex losses of Chapters 6–7. And notice
+the objective is exactly the L2 penalty of Chapter 9: minimising $\lVert
+w\rVert^2$ *is* regularisation, here handed a crisp geometric meaning — small
+weights mean a wide margin.
+
+## 5. Soft margins: when the classes overlap
+
+The clean story assumes the classes can be separated at all. Real data
+rarely obliges: clouds overlap, labels are noisy, and no straight line gets
+everything right. A hard margin would have no solution.
+
+The fix is to allow violations, but charge for them. We give each point a
+*slack* $\xi_i \ge 0$ measuring how far it intrudes past its margin — zero
+for points safely outside, positive for points inside the street or on the
+wrong side — and add the total slack to the objective with a price $C$:
+
+$$\min_{w,\,b,\,\xi}\ \tfrac12 \lVert w\rVert^2 + C\sum_i \xi_i \quad\text{subject to}\quad y_i(w\cdot x_i + b)\ge 1 - \xi_i,\ \ \xi_i \ge 0.$$
+
+The single knob $C$ sets the exchange rate between a wide margin and few
+violations. A **large** $C$ makes every violation expensive, forcing a
+narrow, hard margin that contorts to classify nearly every training point —
+low bias, high variance. A **small** $C$ shrugs off violations to keep the
+margin wide and smooth, accepting some misclassifications — high bias, low
+variance. It is the bias–variance trade-off of Chapters 9–11 in a new guise.
+
+<SoftMargin />
+
+Sweep $C$ from small to large and watch the street pinch in as the boundary
+starts chasing individual points, the support-vector count shifting with it.
+The right $C$ is the one that generalises best — found, as ever, by
+cross-validation.
+
+## 6. The hinge loss: an SVM is a linear model with a different loss
+
+The soft-margin problem looks like a constrained program, but it hides a
+familiar shape. At the optimum each slack takes its smallest allowed value,
+$\xi_i = \max(0,\ 1 - y_i(w\cdot x_i + b))$ — zero when the point is safely
+past its margin, and growing linearly as it intrudes. That expression is the
+**hinge loss**. Substituting it back turns the SVM into a plain unconstrained
+minimisation:
+
+$$\min_{w}\ \frac{\lambda}{2}\lVert w\rVert^2 + \frac1n\sum_{i=1}^{n} \max\!\big(0,\ 1 - y_i(w\cdot x_i + b)\big).$$
+
+This is *exactly* the form of Chapters 6–7: a regularisation term plus an
+average loss. The SVM is simply a linear model trained with the **hinge loss**
+in place of logistic regression's log-loss, and $\lambda$ (inversely related
+to $C$) is the L2 strength. Two linear classifiers, same machinery,
+different loss.
+
+<HingeLoss />
+
+The difference between the two losses is the whole personality of the SVM.
+Both upper-bound the 0–1 error, so minimising either drives the true error
+down — but the hinge loss is *flat* once a point is past the margin. A point
+sitting comfortably on the right side contributes zero loss and zero
+gradient: it is ignored. Logistic regression's loss, by contrast, never quite
+reaches zero, so every point keeps tugging on the boundary forever. The
+hinge's flat region is precisely why only the support vectors — the points
+still on or inside the margin — determine the SVM's solution.
+
+And because this is just regularised loss minimisation, you can train a
+linear SVM by the gradient descent of Chapter 6: follow the hinge loss's
+(sub)gradient downhill. That is exactly the algorithm we implement in §11.
+
+## 7. The kernel trick (1): lifting to where it separates
+
+So far, straight boundaries. But some data is hopelessly non-linear — a class
+encircled by another, say, with no line able to separate the ring from its
+core. Logistic regression would fail here, and so would a linear SVM.
+
+The escape is a beautiful change of perspective. Take each 2-D point
+$(x_1, x_2)$ and *lift* it into three dimensions by adding a coordinate
+$z = x_1^2 + x_2^2$ — its squared distance from the origin. Points near the
+centre lift only a little; points far out lift high. The inner class sinks
+into the bottom of a bowl while the outer class rides up its sides, and now a
+single flat **plane**, slid horizontally between them, separates the two
+perfectly. A linear boundary — in the lifted space.
+
+<KernelLift />
+
+Project that separating plane back down to the original plane and its shadow
+is a **circle**. The non-linear boundary we wanted is nothing more than a
+linear boundary viewed from a higher dimension. Lift the data into a richer
+space, separate it with a flat plane there, and the flatness becomes
+curvature on the way back down. The only question left is the cost of the
+lift — and that is where the trick becomes genius.
+
+## 8. The kernel trick (2): computing the lift for free
+
+Building an explicit lift is expensive, and for the most useful lifts —
+which run to thousands or even infinitely many new coordinates — outright
+impossible. Here the support vectors of §3 pay off. Because the SVM's
+solution depends on the data *only through dot products* $x_i \cdot x_j$ (a
+fact that falls out of the so-called dual form of the problem), we never need
+the lifted coordinates themselves — only the dot products *between* lifted
+points.
+
+A **kernel** is a function that returns exactly that dot product, computed
+directly from the original points without ever building the lift:
+
+$$K(x_i, x_j) = \phi(x_i)\cdot\phi(x_j),$$
+
+where $\phi$ is the lift. The two that matter most:
+
+- the **polynomial kernel** $K(x_i,x_j) = (x_i\cdot x_j + 1)^d$, whose lift is
+  all products of up to $d$ features;
+- the **RBF (Gaussian) kernel** $K(x_i,x_j) = \exp(-\gamma\lVert x_i - x_j\rVert^2)$,
+  whose lift is *infinite-dimensional* — and which, astonishingly, you compute
+  with one subtraction, one exponential, and a single parameter $\gamma$.
+
+Swap every dot product in the SVM for $K$ and the linear machine draws
+arbitrarily curved boundaries, at the cost of evaluating $K$. That swap — the
+**kernel trick** — is the move that made SVMs famous.
+
+<KernelBoundary />
+
+## 9. Choosing the kernel and its parameters
+
+The RBF kernel's width $\gamma$ is a complexity knob, and you saw it bite in
+the widget above. A **small** $\gamma$ means each point's influence reaches
+far, giving a smooth, almost-linear boundary that can underfit. A **large**
+$\gamma$ means influence is intensely local, so the boundary wraps tight
+islands around individual points — training accuracy soars, validation
+accuracy collapses, and the support-vector count balloons: textbook
+overfitting. Together with $C$, that is two hyperparameters, and they are
+chosen exactly as Chapter 11 prescribes — a grid search over $(C, \gamma)$
+scored by cross-validation.
+
+Three practical notes. **Standardise your features first**: the RBF kernel
+measures distances, so a feature on a larger scale would silently dominate.
+**Try the linear kernel before the RBF**: when there are already many
+features (text, genomics), the data is often linearly separable and the
+simpler model wins. And remember the kernel matrix is $n\times n$, which
+brings us to the costs.
+
+## 10. Multi-class, and where SVMs sit
+
+The SVM is intrinsically **binary** — one boundary, two sides. For $k$
+classes you fall back on Chapter 8's recipes: *one-vs-rest* (train $k$
+classifiers, each one class against all others, take the most confident) or
+*one-vs-one* (train a classifier for every pair and vote). Both wrap the
+binary SVM without changing it.
+
+Where does all this leave the SVM in practice? Its **strengths** are real:
+superb in high dimensions, effective even when features outnumber samples
+($p \gg n$, as in text classification), elegant non-linearity through
+kernels, and a sparse solution resting on a few support vectors.
+Its **weaknesses** are equally real: the $n\times n$ kernel matrix makes
+kernel SVMs scale poorly past tens of thousands of points; they output
+distances, not calibrated probabilities, natively; and they demand careful
+feature scaling and hyperparameter tuning.
+
+For two decades the kernel SVM was the strongest off-the-shelf classifier in
+the world. Today gradient boosting usually wins on tabular data and neural
+networks on perception, and the SVM has settled into a specialist's tool —
+excellent on high-dimensional, scarce, or text data. But the ideas it
+crystallised run straight through modern machine learning.
+
+## 11. Implementing it yourself
+
+A linear soft-margin SVM by **Pegasos** — stochastic sub-gradient descent on
+the regularised hinge loss of §6. The whole optimiser is the inner loop:
+shrink $w$ toward zero (the regulariser), and for any point still inside its
+margin, nudge $w$ toward classifying it correctly (the hinge sub-gradient).
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+# Two separable blobs: class 0 left, class 1 right.
+def make_blobs(n, seed, gap=3.0, spread=0.45):
+    rng = np.random.default_rng(seed)
+    y = np.arange(n) % 2
+    cx = np.where(y == 0, -gap / 2, gap / 2)
+    cy = np.where(y == 0, 0.35, -0.35)
+    X = np.stack([rng.normal(cx, spread), rng.normal(cy, spread)], axis=1)
+    return X, y
+
+def pegasos(X, y, C, epochs, seed=0):
+    rng = np.random.default_rng(seed)
+    n, d = X.shape
+    s = 2 * y - 1                       # {0,1} -> {-1,+1}
+    lam = 1.0 / (C * n)                 # regularisation strength
+    w = np.zeros(d); b = 0.0; t = 0
+    for _ in range(epochs):
+        for i in rng.permutation(n):
+            t += 1
+            eta = 1.0 / (lam * t)       # decaying step size
+            if s[i] * (w @ X[i] + b) < 1:           # inside the margin
+                w = (1 - eta * lam) * w + eta * s[i] * X[i]
+                b += eta * s[i]
+            else:                                   # safely outside
+                w = (1 - eta * lam) * w
+    return w, b
+
+X, y = make_blobs(80, 7)
+w, b = pegasos(X, y, C=1.0, epochs=300)
+
+pred = (X @ w + b >= 0).astype(int)
+margin = 1.0 / np.linalg.norm(w)
+s = 2 * y - 1
+n_sv = int(np.sum(s * (X @ w + b) <= 1 + 1e-6))   # points on/inside the margin
+print(f"training accuracy: {(pred == y).mean():.3f}")
+print(f"margin 1/||w||:    {margin:.3f}")
+print(f"support vectors:   {n_sv}")
+`}
+/>
+
+It separates the blobs perfectly and recovers a wide margin from a couple of
+support vectors. The only thing between this and a production linear SVM is
+better step-size bookkeeping; the only thing between it and a *kernel* SVM is
+the dual formulation of §8, which replaces $w$ with a weighted sum over
+support vectors and every dot product with $K$.
+
+## 12. Problems
+
+### Problem 1 — Margins and support vectors
+
+A conceptual question. (a) Two different lines both separate the training
+data perfectly. Why does the SVM prefer the one with the larger margin —
+what does margin have to do with generalisation? (b) A point sits far from
+the boundary, correctly classified. Delete it and retrain: does the boundary
+move? What if instead you delete a support vector? (c) As you *decrease* $C$,
+what happens to the width of the margin and to the number of support
+vectors, and why?
+
+<details>
+  <summary>Show solution</summary>
+
+**(a)** The margin is the boundary's distance to the nearest training point —
+its buffer against noise. A wide margin means every point sits well clear of
+the boundary, so a small perturbation (a noisy feature, an unseen point near
+a training one) is unlikely to land on the wrong side. A boundary that
+skims close to points has no such slack. Formally, a larger margin
+corresponds to a smaller $\lVert w\rVert$ — less model complexity, the L2
+regularisation of Chapter 9 — and so to a tighter bound on the gap between
+training and test error.
+
+**(b)** Deleting a non-support point changes *nothing*: the boundary is
+determined entirely by the support vectors on the margin, and a point safely
+off the street contributes zero hinge loss and zero gradient. Deleting a
+*support vector* generally *does* move the boundary — it was one of the few
+points actively holding it in place. This is the sparsity that defines the
+model.
+
+**(c)** Decreasing $C$ makes violations cheaper, so the optimiser happily
+widens the margin even though more points end up inside it. The margin grows
+and the number of support vectors *increases* (more points lie on or within
+the wider street). Large $C$ does the reverse: a narrow, hard margin with few
+support vectors. Small $C$ = more regularisation = higher bias, lower
+variance.
+
+</details>
+
+### Problem 2 — The margin is $1/\lVert w\rVert$
+
+Show, then check numerically, that under the convention $y_i(w\cdot x_i+b)\ge 1$
+(with equality for the closest points), the distance from the boundary to the
+nearest point is $1/\lVert w\rVert$.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+# A hand-chosen separable set and a separating hyperplane w, b.
+X = np.array([[2.0, 1.0], [3.0, 0.0], [1.0, 2.0],     # class +1
+              [-2.0, -1.0], [-3.0, 0.0], [-1.0, -2.0]]) # class -1
+y = np.array([1, 1, 1, -1, -1, -1])
+w = np.array([1.0, 0.0]); b = 0.0     # boundary is the vertical line x1 = 0
+
+# Your code:
+#   1. functional margins  y_i (w·x_i + b)  — the scaled distances.
+#   2. geometric distances |w·x_i + b| / ||w||  to the boundary.
+#   3. confirm the SMALLEST geometric distance equals 1/||w|| after you
+#      rescale (w, b) so the closest functional margin is exactly 1.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+X = np.array([[2.0, 1.0], [3.0, 0.0], [1.0, 2.0],
+              [-2.0, -1.0], [-3.0, 0.0], [-1.0, -2.0]])
+y = np.array([1, 1, 1, -1, -1, -1])
+w = np.array([1.0, 0.0]); b = 0.0
+
+func = y * (X @ w + b)                       # functional margins
+print("functional margins:", func)
+
+# Rescale so the closest point has functional margin exactly 1.
+scale = func.min()
+w, b = w / scale, b / scale
+func = y * (X @ w + b)
+geom = np.abs(X @ w + b) / np.linalg.norm(w) # geometric distances
+print("after rescaling, min functional margin:", func.min())
+print("min geometric distance:", round(geom.min(), 4))
+print("1 / ||w||:             ", round(1 / np.linalg.norm(w), 4))
+`}
+/>
+
+The signed distance from a point to the hyperplane $w\cdot x + b = 0$ is
+$(w\cdot x + b)/\lVert w\rVert$. Once we rescale so the nearest point has
+$y_i(w\cdot x_i + b) = 1$, that nearest distance is $1/\lVert w\rVert$ —
+which is why maximising the margin is minimising $\lVert w\rVert$.
+
+</details>
+
+### Problem 3 — Hinge versus logistic loss
+
+Tabulate the hinge loss $\max(0, 1-z)$ and the logistic loss (in bits,
+$\log_2(1+e^{-z})$) against the functional margin $z = y(w\cdot x+b)$, and
+confirm both upper-bound the 0–1 loss. Then explain, from the numbers, why the
+SVM has support vectors and logistic regression does not.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+z = np.array([-2.0, -1.0, 0.0, 0.5, 1.0, 2.0, 3.0])
+
+# Your code:
+#   hinge   = max(0, 1 - z)
+#   logloss = log2(1 + exp(-z))
+#   zero_one = 1.0 if z < 0 else 0.0
+#   Print a table and check hinge >= zero_one and logloss >= zero_one.
+#   Note which loss becomes EXACTLY zero past z = 1.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+z = np.array([-2.0, -1.0, 0.0, 0.5, 1.0, 2.0, 3.0])
+hinge = np.maximum(0, 1 - z)
+logloss = np.log2(1 + np.exp(-z))
+zero_one = (z < 0).astype(float)
+
+print(f"{'z':>5} {'hinge':>7} {'logistic':>9} {'0-1':>5}")
+for zi, h, l, o in zip(z, hinge, logloss, zero_one):
+    print(f"{zi:>5.1f} {h:>7.3f} {l:>9.3f} {o:>5.0f}")
+
+print("hinge   >= 0-1 everywhere:", bool(np.all(hinge   >= zero_one - 1e-9)))
+print("logistic>= 0-1 everywhere:", bool(np.all(logloss >= zero_one - 1e-9)))
+print("hinge is exactly 0 past z=1:", bool(np.all(hinge[z >= 1] == 0)))
+print("logistic never reaches 0:   ", bool(np.all(logloss > 0)))
+`}
+/>
+
+Both losses sit above the 0–1 error, so minimising either reduces the true
+error. The difference is the tail: the hinge is *exactly zero* once $z \ge 1$,
+so a point past the margin exerts no pull on the boundary — it is not a
+support vector. The logistic loss is always strictly positive, so every
+point, however well classified, keeps nudging the weights. That is why the SVM
+solution is sparse in its data and logistic regression's is not.
+
+</details>
+
+### Problem 4 — Train a linear SVM by gradient descent
+
+Implement the Pegasos sub-gradient update, train on a near-separable 2-D set,
+and read off the support vectors (points with $y_i(w\cdot x_i + b) \le 1$).
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def make_blobs(n, seed, gap=2.4, spread=0.55):
+    rng = np.random.default_rng(seed)
+    y = np.arange(n) % 2
+    cx = np.where(y == 0, -gap / 2, gap / 2)
+    cy = np.where(y == 0, 0.3, -0.3)
+    X = np.stack([rng.normal(cx, spread), rng.normal(cy, spread)], axis=1)
+    return X, y
+
+X, y = make_blobs(100, 4)
+
+# Your code: write pegasos(X, y, C, epochs) returning (w, b), then report
+# training accuracy, the margin 1/||w||, and how many support vectors there are
+# (points with y_i (w·x_i + b) <= 1 + 1e-6).
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def make_blobs(n, seed, gap=2.4, spread=0.55):
+    rng = np.random.default_rng(seed)
+    y = np.arange(n) % 2
+    cx = np.where(y == 0, -gap / 2, gap / 2)
+    cy = np.where(y == 0, 0.3, -0.3)
+    X = np.stack([rng.normal(cx, spread), rng.normal(cy, spread)], axis=1)
+    return X, y
+
+def pegasos(X, y, C, epochs, seed=0):
+    rng = np.random.default_rng(seed)
+    n, d = X.shape
+    s = 2 * y - 1
+    lam = 1.0 / (C * n)
+    w = np.zeros(d); b = 0.0; t = 0
+    for _ in range(epochs):
+        for i in rng.permutation(n):
+            t += 1
+            eta = 1.0 / (lam * t)
+            if s[i] * (w @ X[i] + b) < 1:
+                w = (1 - eta * lam) * w + eta * s[i] * X[i]
+                b += eta * s[i]
+            else:
+                w = (1 - eta * lam) * w
+    return w, b
+
+X, y = make_blobs(100, 4)
+w, b = pegasos(X, y, C=1.0, epochs=300)
+
+s = 2 * y - 1
+pred = (X @ w + b >= 0).astype(int)
+n_sv = int(np.sum(s * (X @ w + b) <= 1 + 1e-6))
+print(f"accuracy:        {(pred == y).mean():.3f}")
+print(f"margin 1/||w||:  {1 / np.linalg.norm(w):.3f}")
+print(f"support vectors: {n_sv} of {len(y)}")
+`}
+/>
+
+A few hundred epochs of sub-gradient steps land a wide-margin separator, and
+only the handful of points with functional margin $\le 1$ — those on or
+inside the street — count as support vectors. This is the §6 reframe made
+literal: an SVM is regularised hinge-loss minimisation, and gradient descent
+solves it.
+
+</details>
+
+### Problem 5 — The kernel trick from scratch
+
+The capstone. Take the concentric rings, confirm a linear SVM fails, then
+*lift* the data with $z = x_1^2 + x_2^2$ and watch a linear SVM in 3-D
+separate it perfectly — the same boundary the RBF kernel would find directly.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def make_rings(n, seed, noise=0.13):
+    rng = np.random.default_rng(seed)
+    half = n // 2
+    inner = np.arange(n) < half
+    r = np.where(inner, 0.85, 2.1) + rng.normal(0, noise, n)
+    t = rng.uniform(0, 2 * np.pi, n)
+    X = np.stack([r * np.cos(t), r * np.sin(t)], axis=1)
+    return X, (~inner).astype(int)
+
+def pegasos(X, y, C, epochs, seed=0):
+    rng = np.random.default_rng(seed)
+    n, d = X.shape
+    s = 2 * y - 1
+    lam = 1.0 / (C * n)
+    w = np.zeros(d); b = 0.0; t = 0
+    for _ in range(epochs):
+        for i in rng.permutation(n):
+            t += 1
+            eta = 1.0 / (lam * t)
+            if s[i] * (w @ X[i] + b) < 1:
+                w = (1 - eta * lam) * w + eta * s[i] * X[i]; b += eta * s[i]
+            else:
+                w = (1 - eta * lam) * w
+    return w, b
+
+X, y = make_rings(120, 5)
+
+# Your code:
+#   1. Train pegasos on X (2-D). Print accuracy — a line cannot separate rings.
+#   2. Lift: Z = [x1, x2, x1^2 + x2^2]. Train pegasos on Z. Print accuracy.
+#   3. From the lifted weights, report the boundary's radius^2 (= -b / w[2]).
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def make_rings(n, seed, noise=0.13):
+    rng = np.random.default_rng(seed)
+    half = n // 2
+    inner = np.arange(n) < half
+    r = np.where(inner, 0.85, 2.1) + rng.normal(0, noise, n)
+    t = rng.uniform(0, 2 * np.pi, n)
+    X = np.stack([r * np.cos(t), r * np.sin(t)], axis=1)
+    return X, (~inner).astype(int)
+
+def pegasos(X, y, C, epochs, seed=0):
+    rng = np.random.default_rng(seed)
+    n, d = X.shape
+    s = 2 * y - 1
+    lam = 1.0 / (C * n)
+    w = np.zeros(d); b = 0.0; t = 0
+    for _ in range(epochs):
+        for i in rng.permutation(n):
+            t += 1
+            eta = 1.0 / (lam * t)
+            if s[i] * (w @ X[i] + b) < 1:
+                w = (1 - eta * lam) * w + eta * s[i] * X[i]; b += eta * s[i]
+            else:
+                w = (1 - eta * lam) * w
+    return w, b
+
+X, y = make_rings(120, 5)
+
+w2, b2 = pegasos(X, y, C=1.0, epochs=300)
+print("linear SVM on rings:", round(((X @ w2 + b2 >= 0).astype(int) == y).mean(), 3),
+      "(a line cannot separate them)")
+
+Z = np.column_stack([X, (X ** 2).sum(1)])     # lift to 3-D
+wz, bz = pegasos(Z, y, C=1.0, epochs=300)
+print("linear SVM on LIFTED data:", round(((Z @ wz + bz >= 0).astype(int) == y).mean(), 3))
+print("boundary radius^2 ~", round(-bz / wz[2], 2),
+      "(between inner ~0.7 and outer ~4.4)")
+`}
+/>
+
+A straight line limps along near chance on the rings; the very same linear
+SVM, handed the one extra coordinate $z = x_1^2 + x_2^2$, separates them
+perfectly with a flat plane whose shadow is a circle. The RBF kernel reaches
+the same place without ever building the lift — that is the trick, and it is
+the high note Part V opens on.
+
+</details>
+
+---
+
+The support vector machine is the most geometric model in the book. Every
+piece of it is a picture: the widest street between the classes, the handful
+of support vectors holding the boundary in place, the lift into a higher
+dimension where the tangled becomes separable and the plane's shadow falls
+back as a curve. And underneath the geometry sits the familiar machinery — a
+regularised loss, minimised by gradient descent, tuned by cross-validation —
+so the SVM is at once the most visual classical model and a close cousin of
+the linear models we began with.
+
+*Next: Chapter 16 — Naive Bayes.* From the most geometric model to the most
+probabilistic: a classifier built almost entirely out of Bayes' rule and a
+single bold independence assumption — and, despite that assumption being
+plainly false, a startlingly strong baseline.

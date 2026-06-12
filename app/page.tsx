@@ -45,7 +45,7 @@ const parts: { title: string; chapters: Chapter[] }[] = [
   {
     title: 'V — More classical models',
     chapters: [
-      { num: 15, title: 'Support vector machines', blurb: 'Maximum margins and the kernel trick, geometrically.' },
+      { num: 15, title: 'Support vector machines', blurb: 'Maximum margins and the kernel trick, geometrically.', href: '/chapters/15-support-vector-machines' },
       { num: 16, title: 'Naive Bayes', blurb: 'Probability done plainly. A surprisingly strong baseline.' },
       { num: 17, title: 'Feature engineering', blurb: 'The unglamorous work that decides whether anything else matters.' },
     ],
