@@ -7,10 +7,10 @@ import type { Point } from '@/lib/tree'
 const W = 520
 const H = 440
 const PAD = 28
-const X_MIN = -4.6
-const X_MAX = 4.6
-const Y_MIN = -3.9
-const Y_MAX = 3.9
+const X_MIN = -5.2
+const X_MAX = 5.2
+const Y_MIN = -4.4
+const Y_MAX = 4.4
 const GX = 52
 const GY = 44
 
@@ -137,18 +137,20 @@ export default function NaiveAssumption() {
       </div>
 
       <div className="grid grid-cols-2 gap-4 mt-3 font-mono text-xs text-ink-muted">
-        <div>true correlation = <span className="text-ink">{rho.toFixed(2)}</span> · NB assumes <span className="text-ink">0.00</span></div>
+        <div>class correlations = <span className="text-ink">±{rho.toFixed(2)}</span> · NB assumes <span className="text-ink">0</span></div>
         <div>NB accuracy = <span className="text-accent">{(acc * 100).toFixed(1)}%</span></div>
       </div>
 
       <figcaption className="font-sans text-sm text-ink-muted mt-4 text-center max-w-prose mx-auto">
-        Figure 16.2 — What &ldquo;naive&rdquo; costs you. Each class&rsquo;s real
-        spread is the tilted ellipse; the independence assumption forces naive
-        Bayes to fit the <em>upright</em> dashed ellipse instead, because a tilt
-        is exactly feature correlation — and an axis-aligned Gaussian has none.
-        Turn up ρ and the two ellipses peel apart: NB is fitting the wrong shape,
-        its probabilities drift, and its boundary bends away from the ideal one.
-        The assumption is a lie; this is the size of the lie.
+        Figure 16.2 — What &ldquo;naive&rdquo; costs you. Here the two classes
+        are told apart by their <em>correlation</em>: each real spread is a
+        tilted ellipse, and the classes tilt opposite ways. But a tilt is
+        exactly feature correlation, which an axis-aligned Gaussian has none of
+        — so naive Bayes fits the <em>upright</em> dashed ellipses, and they come
+        out nearly identical for both classes. Turn up ρ and the true ellipses
+        cross into an X while NB&rsquo;s stay upright and blind to the
+        difference: its accuracy slides as it fits the wrong shape. The
+        assumption is a lie; this is the size of the lie.
       </figcaption>
     </figure>
   )

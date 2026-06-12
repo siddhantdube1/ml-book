@@ -77,7 +77,7 @@ export default function SpamFilter() {
           <rect x={40} y={30} width={W - 80} height={8} rx={4} fill="url(#sf-grad)" />
           <line x1={(W) / 2} y1={28} x2={W / 2} y2={40} stroke="var(--ink-faint)" strokeWidth={1} />
           <polygon points={`${needleX},28 ${needleX - 5},18 ${needleX + 5},18`} fill={pSpam >= 0.5 ? SPAM : HAM} />
-          <text x={needleX} y={52} fontSize={11} fill={pSpam >= 0.5 ? SPAM : HAM} textAnchor="middle" fontFamily="var(--font-mono, monospace)">
+          <text x={Math.max(78, Math.min(W - 78, needleX))} y={52} fontSize={11} fill={pSpam >= 0.5 ? SPAM : HAM} textAnchor="middle" fontFamily="var(--font-mono, monospace)">
             P(spam) = {pct}%
           </text>
 

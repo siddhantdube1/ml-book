@@ -70,26 +70,29 @@ export function gnbPredict(m: GaussianNB, x: number[]): number {
 // ─── Datasets ────────────────────────────────────────────────────────
 
 /**
- * Two Gaussian classes sharing an elongated covariance, offset along x. The
- * `rho` knob in [0, 1] tilts the shared cloud (its long axis rotates with
- * rho); at rho = 0 the clouds are axis-aligned, so naive Bayes' independence
- * assumption is exactly right, and as rho grows the tilt is correlation that
- * NB's upright ellipse cannot represent.
+ * Two elongated Gaussian classes offset along y, with *opposite* correlations:
+ * class 0 tilts one way, class 1 the other, by an angle set by `rho` in
+ * [0, 1]. At rho = 0 both clouds are axis-aligned and naive Bayes is exactly
+ * right; as rho grows the opposite tilts are precisely the structure that
+ * separates the classes — and the structure NB's upright, identical-shaped
+ * ellipses cannot see, so its accuracy falls monotonically.
  */
 export function makeCorrelatedBlobs(n: number, seed: number, rho: number): Point[] {
   const rng = createRng(seed)
   const theta = rho * Math.PI * 0.45
-  const c = Math.cos(theta)
-  const s = Math.sin(theta)
-  const sLong = 1.45
-  const sShort = 0.42
+  const sLong = 1.5
+  const sShort = 0.45
+  const offset = 0.7
   const out: Point[] = []
   for (let i = 0; i < n; i++) {
     const y = i % 2
-    const cx = y === 0 ? -1.0 : 1.0
+    const sign = y === 0 ? 1 : -1 // opposite tilt per class
+    const c = Math.cos(sign * theta)
+    const s = Math.sin(sign * theta)
+    const cy = y === 0 ? -offset : offset
     const a = gauss(rng, 0, sLong) // along the long axis
     const b = gauss(rng, 0, sShort) // along the short axis
-    out.push({ x: [cx + a * c - b * s, a * s + b * c], y })
+    out.push({ x: [a * c - b * s, cy + a * s + b * c], y })
   }
   return shuffle(out, rng)
 }
