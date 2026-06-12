@@ -62,7 +62,7 @@ export default function PrincipalAxes() {
         <svg
           ref={svgRef}
           viewBox={`0 0 ${W} ${H}`}
-          className="w-full h-auto block touch-none"
+          className="w-full h-auto block touch-none select-none"
           style={{ cursor: dragging ? 'grabbing' : 'default' }}
           onPointerMove={(e) => dragging && setFromPointer(e)}
           onPointerUp={(e) => { setDragging(false); e.currentTarget.releasePointerCapture(e.pointerId) }}

@@ -71,7 +71,7 @@ export default function ProjectionReconstruction() {
 
       <figcaption className="font-sans text-sm text-ink-muted mt-4 text-center max-w-prose mx-auto">
         Figure 20.2 — Projection is lossy compression. Keep one component and
-        every point collapses onto the <span className="text-accent">PC1</span>
+        every point collapses onto the <span className="text-accent">PC1</span>{' '}
         line — two numbers become one — and the orange stubs are exactly what is
         thrown away, each point&rsquo;s distance from the line. Because PC1 is the
         widest direction, those residuals are as small as any single line could

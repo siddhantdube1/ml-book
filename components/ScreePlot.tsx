@@ -69,7 +69,7 @@ export default function ScreePlot() {
           ))}
           <text x={(PAD_L + W - PAD_R) / 2} y={H - 8} fontSize={11} fill="var(--ink-muted)" textAnchor="middle" fontStyle="italic">principal component</text>
           {/* legend */}
-          <g transform={`translate(${W - PAD_R - 168}, ${PAD_T + 2})`} fontFamily="var(--font-sans, sans-serif)" fontSize={10}>
+          <g transform={`translate(${W - PAD_R - 150}, 150)`} fontFamily="var(--font-sans, sans-serif)" fontSize={10}>
             <rect x={0} y={-6} width={12} height={8} fill="var(--accent)" opacity={0.85} /><text x={18} y={1.5} fill="var(--ink-muted)">variance per PC</text>
             <line x1={0} y1={14} x2={12} y2={14} stroke="var(--ink)" strokeWidth={1.75} /><text x={18} y={17.5} fill="var(--ink-muted)">cumulative</text>
           </g>
