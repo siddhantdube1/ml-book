@@ -54,7 +54,7 @@ const parts: { title: string; chapters: Chapter[] }[] = [
     title: 'VI — Unsupervised learning',
     chapters: [
       { num: 18, title: 'k-means clustering', blurb: 'Finding structure without labels. Step through every iteration.', href: '/chapters/18-k-means' },
-      { num: 19, title: 'Hierarchical and density-based clustering', blurb: 'When clusters are not blobs.' },
+      { num: 19, title: 'Hierarchical and density-based clustering', blurb: 'When clusters are not blobs.', href: '/chapters/19-hierarchical-density-clustering' },
       { num: 20, title: 'PCA and dimensionality reduction', blurb: 'Seeing high-dimensional data as it really is.' },
     ],
   },

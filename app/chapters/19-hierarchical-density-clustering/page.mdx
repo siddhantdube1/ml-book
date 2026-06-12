@@ -1,0 +1,617 @@
+import DendrogramBuilder from '@/components/DendrogramBuilder'
+import LinkageComparison from '@/components/LinkageComparison'
+import DBSCANPlayback from '@/components/DBSCANPlayback'
+import ShapeShowdown from '@/components/ShapeShowdown'
+import PyodideEditor from '@/components/PyodideEditor'
+
+export const metadata = {
+  title: 'Hierarchical and density-based clustering',
+  description:
+    'Beyond k-means: a hierarchy of nested clusters that needs no k, and a density rule that finds clusters of any shape and calls the rest noise. Dendrograms, linkage, and DBSCAN — with four interactive visualisations, runnable Python, and five problems.',
+  openGraph: {
+    title: 'Hierarchical and density-based clustering',
+    description:
+      'An interactive walk-through of hierarchical clustering and DBSCAN — dendrograms, linkage, core/border/noise, and why they beat k-means on awkward shapes.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 19 · Part VI — Unsupervised learning
+</p>
+
+# Hierarchical and density-based clustering
+
+*Beyond k-means: a tree of nested clusters that never asks for k, and a density
+rule that traces any shape and shrugs off the outliers as noise.*
+
+Hand k-means the two interleaving crescents from Chapter 7 — the moons every
+classifier in this book has cut its teeth on — and ask it for two clusters. It
+will think for a moment and then draw a straight line clean through the middle
+of both, splitting each crescent in half and pairing the wrong halves together.
+It is not a bug. k-means can only carve the plane into convex tiles around its
+centres, and no two such tiles trace a pair of crescents. The shape was always
+beyond it.
+
+That failure is one of three. k-means makes you name the number of clusters
+before it has looked at a single point; it can only find clusters that are round
+and roughly equal in size; and it forces every point, including the lone outlier
+halfway across the plane, into one cluster or another, because it has no concept
+of a point that simply does not belong. For tidy, blobby data none of this
+matters, and k-means is the right first tool. For everything else, we need
+clustering that asks a different question.
+
+This chapter builds two such methods, each dissolving k-means' limits from a
+different direction. The first stops trying to produce one answer and instead
+builds a whole tree of them — every point alone at the bottom, one cluster at
+the top, and every clustering you might want in between — so you choose the
+number of groups by where you cut, not before you start. The second throws out
+the idea of a centre altogether and defines a cluster as a *dense region* of the
+plane, which lets it trace the moons exactly, count its own clusters, and shrug
+off the outliers as noise. By the end you will know when to reach past k-means,
+and for which of the two.
+
+## 1. Where k-means runs out
+
+It is worth being precise about k-means' three limitations, because each one
+motivates a piece of this chapter. First, **you must choose k in advance**.
+Chapter 18 spent a whole section on the elbow and silhouette heuristics for
+guessing it, precisely because the algorithm cannot discover the number of
+clusters itself — it does what you tell it, even when you tell it wrong.
+
+Second, **it only finds convex blobs**. k-means assigns each point to its
+nearest centroid, which partitions the plane into straight-edged Voronoi tiles.
+Any cluster that is not roughly a round, separable lump — a crescent, a ring, a
+long filament — gets sliced apart, because no arrangement of centres can bend a
+tile around it.
+
+Third, **it has no notion of noise**. Every point is assigned to some cluster,
+so a single far-flung outlier is dragged into the nearest group, dragging that
+group's centroid toward it in turn. Real data is full of such stragglers, and
+k-means cannot say "this one belongs to nobody".
+
+Three limitations, two cures. We take them in turn.
+
+## 2. Clustering as a hierarchy
+
+The first idea refuses to commit. Instead of producing one partition of the
+data, **hierarchical clustering** produces a nested family of all of them at
+once, arranged as a tree. At the bottom of the tree every point sits alone in
+its own cluster; at the top, a single cluster holds everything; and in between,
+every intermediate grouping you might want.
+
+The version we will use is **agglomerative** — bottom-up. Begin with $n$
+clusters, one per point. Find the two clusters that are closest together and
+merge them into one. Now there are $n - 1$. Repeat: find the closest pair, merge,
+repeat, until a single cluster remains. The sequence of merges, and the
+distances at which they happened, is the tree. Crucially, nowhere in this
+process did we name a number of clusters — that choice comes later, and from
+looking at the tree itself.
+
+## 3. Agglomerative clustering, step by step
+
+The algorithm is almost too simple to state: *merge the two closest clusters,
+repeat.* What makes it powerful is the record it leaves behind — the
+**dendrogram**, a diagram of every merge drawn at the height of the distance it
+bridged. Watch it build.
+
+<DendrogramBuilder />
+
+Each step fuses the two nearest groups and adds a bracket to the dendrogram, its
+height marking how far apart the two halves were when they joined. Early merges
+are short — nearby points snapping together — and late merges are tall, bridging
+the wide gaps between already-formed clusters. The finished tree contains every
+clustering simultaneously, and you read one off by cutting horizontally: slide
+the cut and the points recolour into however many clusters the cut produces. We
+will make that cut precise in §5.
+
+## 4. Linkage: what does "closest" mean?
+
+There is one genuine choice hidden in "the two closest clusters". The distance
+between two single points is obvious, but the distance between two *groups* is
+not, and the definition you pick — the **linkage** — changes the clustering
+completely.
+
+<LinkageComparison />
+
+Four linkages are standard. **Single** linkage takes the distance between the
+two *nearest* members, one from each cluster — which means a cluster can grow by
+reaching out through its closest point, and as the widget shows, a thin bridge
+of points lets it *chain* two separate blobs into one. **Complete** linkage takes
+the *farthest* pair, so a merge only happens when two clusters are compact and
+close all over, producing tight balls and refusing the bridge. **Average**
+linkage splits the difference, using the mean distance over all pairs. **Ward**
+linkage merges the pair that least increases the total within-cluster variance —
+the same sum-of-squares objective k-means minimises, which makes Ward the
+blob-friendly default. Single linkage's chaining is its famous weakness and its
+occasional superpower: it is exactly what lets single linkage trace a crescent.
+
+## 5. Reading and cutting the dendrogram
+
+The tree is the whole output; a *clustering* is a horizontal slice through it.
+Choose a height, draw a line across the dendrogram, and every branch the line
+cuts becomes one cluster — everything below that severed branch is grouped
+together. Cut low, near the leaves, and you get many small clusters; cut high,
+near the root, and you get a few large ones. Cutting at a height that yields
+exactly $k$ groups is the same as stopping the agglomeration $k$ merges from the
+end.
+
+So where should you cut? The dendrogram answers visually. Look for the **tallest
+vertical gaps** — the long stretches of height in which no merge happens. A big
+gap means the clusters below it stayed stubbornly separate across a wide range of
+distances before finally joining, which is the signature of a real division in
+the data. Cutting across the tallest gap gives the most "natural" number of
+clusters, and is the closest hierarchical clustering comes to choosing $k$ for
+you.
+
+## 6. A different question: density
+
+The second method discards centres and trees alike and asks a question your eye
+answers instantly when it picks out the moons: *where is the plane crowded?* A
+cluster, in this view, is not a region near a centre but a **dense region** — a
+patch where points are packed tightly together — and the boundaries between
+clusters are the sparse gaps where the density drops away.
+
+This reframing fixes all three of k-means' problems at a stroke. A dense region
+can be any shape — a blob, a crescent, a ring — because density follows the
+points wherever they go. The number of clusters is however many separate dense
+regions there are, which the algorithm discovers rather than demands. And a point
+in no dense region at all belongs to no cluster — it is simply *noise*. We need
+only make "dense" precise.
+
+## 7. DBSCAN: core, border, and noise
+
+**DBSCAN** — Density-Based Spatial Clustering of Applications with Noise — makes
+density mechanical with two parameters: a radius $\varepsilon$ and a count
+`minPts`. Around each point, look within distance $\varepsilon$; if at least
+`minPts` points fall inside (counting the point itself), the point sits in a
+crowd and is called a **core** point. Clusters are then grown by chaining: start
+at a core point, absorb everything within its $\varepsilon$-neighbourhood, and
+for every absorbed point that is *also* core, absorb its neighbourhood too,
+rippling outward through the dense region until the density runs out.
+
+<DBSCANPlayback />
+
+Three kinds of point fall out. A **core** point (filled) is dense — at least
+`minPts` neighbours within $\varepsilon$, and the faint discs pile up to show
+where the plane is crowded. A **border** point (ringed) is not itself dense but
+lies within $\varepsilon$ of a core, clinging to a cluster's edge. A **noise**
+point (grey ×) is neither — too isolated to reach any core — and is left
+unclustered, the outlier k-means could never name. Notice there is no $k$: DBSCAN
+chains together however many dense regions exist and counts them for you.
+
+## 8. Choosing ε and minPts
+
+The two knobs trade off against each other, and against the data's scale.
+`minPts` sets how many neighbours make a neighbourhood "dense"; larger values
+demand denser cores and label more points as noise, and a common rule of thumb is
+to set it to about twice the number of dimensions. $\varepsilon$ is the sensitive
+one — the radius that defines "close". Too small and even tight clusters fail the
+density test and shatter into all-noise; too large and the gaps between separate
+clusters fill in and everything fuses into one.
+
+The standard way to choose $\varepsilon$ is the **k-distance plot**: for every
+point, measure the distance to its `minPts`-th nearest neighbour, sort those
+distances, and plot them. Most points (inside clusters) have small such
+distances; the few in sparse regions have large ones, so the sorted curve stays
+low and then bends sharply upward at an *elbow* — and the $\varepsilon$ at that
+elbow is the radius that separates dense from sparse. And, exactly as in Chapter
+17, because every step here is a distance, **standardise your features first** or
+the largest-scaled one will define density on its own.
+
+## 9. Arbitrary shapes, and the showdown
+
+Time to settle the question the chapter opened with. Here are k-means,
+single-linkage hierarchical, and DBSCAN, clustering the same data side by side.
+
+<ShapeShowdown />
+
+On round **blobs**, all three agree — when the clusters really are convex lumps,
+k-means' assumptions hold and it is the fastest, simplest choice. Switch to the
+**moons** or the **circles** and the picture splits apart: k-means draws its
+straight partition straight through the shapes, confidently pairing the wrong
+halves, while single-linkage hierarchical chains along each crescent and DBSCAN
+grows along each dense band — both tracing the true forms, and DBSCAN quietly
+marking the stray points as noise. This is the one-picture answer to "why not just
+use k-means?": because the shape of your clusters is a fact about your data, and
+only some algorithms can see it.
+
+## 10. Choosing a clustering algorithm
+
+There is no best clustering algorithm, only the one whose assumptions match your
+data. A short guide, with the costs.
+
+**k-means** (Chapter 18) is fast — $O(nki)$ for $n$ points, $k$ clusters, $i$
+iterations — and scales to huge datasets. It needs $k$ up front, finds only
+convex blobs, and assigns every point. Reach for it first on large, roughly-round
+data.
+
+**Hierarchical** clustering needs no $k$ in advance and hands back a whole
+dendrogram to inspect, which is invaluable when you want to *understand* the
+nested structure rather than just partition. But the naive algorithm is
+$O(n^2 \log n)$ in time and $O(n^2)$ in memory — it holds the whole
+pairwise-distance picture — so it is confined to smaller datasets, a few thousand
+points at most.
+
+**DBSCAN** finds clusters of any shape, discovers their number itself, and is the
+only one of the three with a real notion of noise — superb for spatial data and
+outlier detection. Its weaknesses are the flip side: it struggles when clusters
+have very *different densities* (one $\varepsilon$ cannot be right for both), and
+it is sensitive to that $\varepsilon$. Naive DBSCAN is $O(n^2)$, though spatial
+indexes bring it close to $O(n \log n)$.
+
+## 11. Implementing it yourself
+
+DBSCAN from scratch — a region query, a queue that grows each cluster through its
+core points, and the noise label for everyone left over — on the moons it was
+built for.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def make_moons(n, seed):
+    rng = np.random.default_rng(seed)
+    half = n // 2
+    cx, cy, r = 340, 200, 95
+    pts = []
+    for i in range(half):
+        t = i / (half - 1) * np.pi
+        pts.append([cx - 55 + r*np.cos(t) + rng.normal(0, 6),
+                    cy + 25 - r*np.sin(t) + rng.normal(0, 6)])
+    for i in range(n - half):
+        t = i / (half - 1) * np.pi
+        pts.append([cx + 55 - r*np.cos(t) + rng.normal(0, 6),
+                    cy - 25 + r*np.sin(t) + rng.normal(0, 6)])
+    return np.array(pts)
+
+def dbscan(X, eps, min_pts):
+    n = len(X)
+    labels = np.full(n, -2)              # -2 unvisited, -1 noise, >=0 cluster id
+    D = np.sqrt(((X[:, None, :] - X[None, :, :]) ** 2).sum(2))
+    region = lambda i: np.where(D[i] <= eps)[0]
+    cid = -1
+    for i in range(n):
+        if labels[i] != -2:
+            continue
+        nb = region(i)
+        if len(nb) < min_pts:            # not enough neighbours -> noise (for now)
+            labels[i] = -1
+            continue
+        cid += 1                         # start a new cluster from this core point
+        labels[i] = cid
+        seeds = list(nb[nb != i])
+        k = 0
+        while k < len(seeds):            # grow the cluster through core points
+            q = seeds[k]; k += 1
+            if labels[q] == -1:
+                labels[q] = cid          # a former noise point is a border point
+            if labels[q] != -2:
+                continue
+            labels[q] = cid
+            qnb = region(q)
+            if len(qnb) >= min_pts:      # q is core -> chain onward
+                seeds.extend(x for x in qnb if labels[x] in (-2, -1))
+    return labels
+
+X = make_moons(160, 5)
+for eps in [10, 22, 40]:
+    lab = dbscan(X, eps, 4)
+    print(f"eps={eps:2d}: clusters={len(set(lab[lab >= 0]))}, noise={int((lab == -1).sum())}")
+`}
+/>
+
+At $\varepsilon = 22$ it recovers the two crescents with no noise; shrink it and
+the moons shatter into fragments and noise, grow it and they fuse into one. The
+whole algorithm is the region query and the growing queue — no centres, no $k$,
+no assumptions about shape.
+
+## 12. Problems
+
+### Problem 1 — Three cures for three failings
+
+A conceptual question. (a) State k-means' three limitations. For each, name a
+method from this chapter that fixes it and say how. (b) Why can DBSCAN cluster
+the two moons when k-means cannot — what is it about each algorithm's definition
+of a cluster? (c) What does it mean for a point to be "noise", and which of the
+three algorithms (k-means, hierarchical, DBSCAN) has that notion?
+
+<details>
+  <summary>Show solution</summary>
+
+**(a)** (i) *Must choose k in advance* — **hierarchical** clustering builds the
+whole tree and lets you pick the number of clusters afterwards by where you cut;
+**DBSCAN** discovers the count itself from the density. (ii) *Only finds convex
+blobs* — both **hierarchical** (especially single linkage) and **DBSCAN** can
+trace non-convex shapes, because they grow clusters by proximity/density rather
+than nearness to a centre. (iii) *No notion of noise* — **DBSCAN** labels
+isolated points as noise and refuses to cluster them.
+
+**(b)** k-means defines a cluster as "the points nearest this centre", which
+partitions the plane into convex tiles — and no convex tile traces a crescent, so
+it cuts both moons in half. DBSCAN defines a cluster as a connected *dense
+region*; density follows the points along each crescent, so a cluster can be any
+shape the dense points form.
+
+**(c)** A noise point lies in no dense region — it is too isolated to belong to
+any cluster — so the algorithm leaves it unassigned rather than forcing it into
+the nearest group. Only **DBSCAN** has this notion; k-means assigns every point,
+and standard hierarchical clustering merges every point into the tree.
+
+</details>
+
+### Problem 2 — Agglomerative merging by hand
+
+Carry out single-linkage agglomerative clustering on five points, recording the
+height of each merge, and find where the dendrogram most wants to be cut.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+pts = np.array([[0, 0], [1, 0], [5, 0], [6, 0], [3, 4.0]])
+
+# Your code:
+#   1. start with each point its own cluster
+#   2. repeatedly merge the two clusters whose NEAREST members are closest
+#      (single linkage), printing the merge and its height
+#   3. note the largest jump in merge height — cutting there is the natural split
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+pts = np.array([[0, 0], [1, 0], [5, 0], [6, 0], [3, 4.0]])
+
+clusters = [[i] for i in range(len(pts))]
+heights = []
+while len(clusters) > 1:
+    best = (1e9, 0, 1)
+    for a in range(len(clusters)):
+        for b in range(a + 1, len(clusters)):
+            d = min(np.hypot(*(pts[i] - pts[j]))
+                    for i in clusters[a] for j in clusters[b])   # single linkage
+            if d < best[0]:
+                best = (d, a, b)
+    d, a, b = best
+    print(f"merge {clusters[a]} + {clusters[b]}  at height {d:.2f}")
+    heights.append(d)
+    clusters[a] = clusters[a] + clusters[b]
+    clusters.pop(b)
+
+gaps = np.diff(heights)
+print("largest height jump after merge", int(np.argmax(gaps)) + 1, "-> cut there")
+`}
+/>
+
+The two left points merge at height 1, the two right points at height 1, and then
+nothing happens until height 4 — a big jump. That gap is the dendrogram telling
+you the data has a real structure at that scale: cutting across it leaves the two
+tight pairs (and the lone high point) as separate clusters, exactly what the eye
+sees.
+
+</details>
+
+### Problem 3 — DBSCAN from scratch
+
+Implement the region query and the cluster-growing loop, run it on the moons, and
+recover two clusters with a little noise.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def make_moons(n, seed):
+    rng = np.random.default_rng(seed)
+    half = n // 2; cx, cy, r = 340, 200, 95; pts = []
+    for i in range(half):
+        t = i/(half-1)*np.pi
+        pts.append([cx-55 + r*np.cos(t) + rng.normal(0,6), cy+25 - r*np.sin(t) + rng.normal(0,6)])
+    for i in range(n-half):
+        t = i/(half-1)*np.pi
+        pts.append([cx+55 - r*np.cos(t) + rng.normal(0,6), cy-25 + r*np.sin(t) + rng.normal(0,6)])
+    return np.array(pts)
+
+X = make_moons(160, 7)
+
+# Your code: write dbscan(X, eps, min_pts) returning a label per point
+#   (-1 = noise). Grow each cluster from a core point through its dense
+#   neighbours. Try eps=22, min_pts=4 and print clusters found + noise count.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def make_moons(n, seed):
+    rng = np.random.default_rng(seed)
+    half = n // 2; cx, cy, r = 340, 200, 95; pts = []
+    for i in range(half):
+        t = i/(half-1)*np.pi
+        pts.append([cx-55 + r*np.cos(t) + rng.normal(0,6), cy+25 - r*np.sin(t) + rng.normal(0,6)])
+    for i in range(n-half):
+        t = i/(half-1)*np.pi
+        pts.append([cx+55 - r*np.cos(t) + rng.normal(0,6), cy-25 + r*np.sin(t) + rng.normal(0,6)])
+    return np.array(pts)
+
+def dbscan(X, eps, min_pts):
+    n = len(X); labels = np.full(n, -2)
+    D = np.sqrt(((X[:, None, :] - X[None, :, :]) ** 2).sum(2))
+    region = lambda i: np.where(D[i] <= eps)[0]
+    cid = -1
+    for i in range(n):
+        if labels[i] != -2: continue
+        nb = region(i)
+        if len(nb) < min_pts:
+            labels[i] = -1; continue
+        cid += 1; labels[i] = cid
+        seeds = list(nb[nb != i]); k = 0
+        while k < len(seeds):
+            q = seeds[k]; k += 1
+            if labels[q] == -1: labels[q] = cid
+            if labels[q] != -2: continue
+            labels[q] = cid
+            qnb = region(q)
+            if len(qnb) >= min_pts:
+                seeds.extend(x for x in qnb if labels[x] in (-2, -1))
+    return labels
+
+X = make_moons(160, 7)
+lab = dbscan(X, 22, 4)
+print("clusters:", len(set(lab[lab >= 0])), " noise:", int((lab == -1).sum()))
+`}
+/>
+
+The region query finds each point's $\varepsilon$-neighbours; the queue grows a
+cluster outward through every core point it reaches; whatever never gets reached
+stays noise. Two crescents, recovered exactly — the shape k-means could not see.
+
+</details>
+
+### Problem 4 — The ε knob and the k-distance elbow
+
+Sweep $\varepsilon$ and watch the cluster count swing from "all noise" to "one
+blob"; then draw the k-distance plot and read off the elbow that picks a good
+value.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+# (paste make_moons and dbscan from Problem 3, or define your own)
+
+def make_moons(n, seed):
+    rng = np.random.default_rng(seed)
+    half = n // 2; cx, cy, r = 340, 200, 95; pts = []
+    for i in range(half):
+        t = i/(half-1)*np.pi
+        pts.append([cx-55 + r*np.cos(t) + rng.normal(0,6), cy+25 - r*np.sin(t) + rng.normal(0,6)])
+    for i in range(n-half):
+        t = i/(half-1)*np.pi
+        pts.append([cx+55 - r*np.cos(t) + rng.normal(0,6), cy-25 + r*np.sin(t) + rng.normal(0,6)])
+    return np.array(pts)
+
+X = make_moons(160, 7)
+
+# Your code:
+#   1. for the 4th-nearest-neighbour of every point, collect that distance,
+#      sort ascending, and print a few percentiles (the k-distance curve)
+#   2. the elbow (where it bends sharply up) is a good eps
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def make_moons(n, seed):
+    rng = np.random.default_rng(seed)
+    half = n // 2; cx, cy, r = 340, 200, 95; pts = []
+    for i in range(half):
+        t = i/(half-1)*np.pi
+        pts.append([cx-55 + r*np.cos(t) + rng.normal(0,6), cy+25 - r*np.sin(t) + rng.normal(0,6)])
+    for i in range(n-half):
+        t = i/(half-1)*np.pi
+        pts.append([cx+55 - r*np.cos(t) + rng.normal(0,6), cy-25 + r*np.sin(t) + rng.normal(0,6)])
+    return np.array(pts)
+
+X = make_moons(160, 7)
+D = np.sqrt(((X[:, None, :] - X[None, :, :]) ** 2).sum(2))
+kth = np.sort(D, axis=1)[:, 4]        # distance to the 4th nearest neighbour
+curve = np.sort(kth)
+for p in [10, 50, 80, 90, 95, 99]:
+    print(f"{p:3d}th percentile of 4-dist: {np.percentile(curve, p):.1f}")
+print("-> the curve stays ~flat then bends up; eps near the elbow (~15-22) is good")
+`}
+/>
+
+Most points sit inside a crescent and have a small 4th-neighbour distance, so the
+sorted curve stays low; the handful in sparse spots have large distances, so it
+turns sharply upward at the end. The $\varepsilon$ at that elbow is the radius
+that calls the dense points dense and the sparse ones noise — and it matches the
+value that gave two clean clusters above.
+
+</details>
+
+### Problem 5 — Linkage and the chaining trap
+
+Show that single linkage chains two blobs joined by a thin bridge into one
+cluster, while complete linkage keeps them apart — and connect it to DBSCAN.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(3)
+A = rng.normal([200, 200], 22, (30, 2))
+B = rng.normal([480, 200], 22, (30, 2))
+bridge = np.column_stack([np.linspace(200, 480, 10), np.full(10, 200.0)])
+X = np.vstack([A, B, bridge])
+
+# Your code: agglomerate to 2 clusters under single vs complete linkage
+#   (cluster-to-cluster distance = min pair for single, max pair for complete),
+#   and print the two cluster sizes for each. Single should chain; complete split.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(3)
+A = rng.normal([200, 200], 22, (30, 2))
+B = rng.normal([480, 200], 22, (30, 2))
+bridge = np.column_stack([np.linspace(200, 480, 10), np.full(10, 200.0)])
+X = np.vstack([A, B, bridge])
+D = np.sqrt(((X[:, None, :] - X[None, :, :]) ** 2).sum(2))
+
+def agglomerate(linkage, target=2):
+    clusters = [[i] for i in range(len(X))]
+    while len(clusters) > target:
+        best = (1e18, 0, 1)
+        for a in range(len(clusters)):
+            for b in range(a + 1, len(clusters)):
+                sub = D[np.ix_(clusters[a], clusters[b])]
+                d = sub.min() if linkage == 'single' else sub.max()
+                if d < best[0]: best = (d, a, b)
+        _, a, b = best
+        clusters[a] += clusters[b]; clusters.pop(b)
+    return sorted(len(c) for c in clusters)
+
+print("single  linkage cluster sizes:", agglomerate('single'))
+print("complete linkage cluster sizes:", agglomerate('complete'))
+`}
+/>
+
+Single linkage measures cluster distance by the nearest pair, so it walks across
+the bridge one short hop at a time and fuses everything into one giant cluster
+(plus a stray). Complete linkage measures by the farthest pair, so the bridge
+never makes the two blobs look close *overall*, and they stay separate. DBSCAN has
+the same vulnerability from the same cause: make $\varepsilon$ large enough to
+span the bridge and it, too, will chain the blobs into one — bridges are the
+shared enemy of every density- or nearest-neighbour-based method.
+
+</details>
+
+---
+
+The three clustering algorithms of these two chapters are not rivals so much as
+different questions asked of the same scatter of points. k-means asks "which of k
+centres is each point nearest?" — fast, simple, and blind to shape. Hierarchical
+clustering asks "in what order do points and groups fuse as we relax our standard
+for togetherness?" — and hands back a whole tree to read. DBSCAN asks "where is
+the plane crowded, and where is it empty?" — and traces clusters of any shape
+while naming the stragglers as noise. Knowing which question fits your data is
+most of the skill of clustering.
+
+All three, though, work in the space the data arrived in, taking its dimensions
+as given — and that is the last assumption Part VI has left to question.
+
+*Next: Chapter 20 — PCA and dimensionality reduction.* The final unsupervised
+idea: not grouping the points, but reshaping the space they live in — finding the
+few directions that carry the data's real variation, and throwing the rest away.

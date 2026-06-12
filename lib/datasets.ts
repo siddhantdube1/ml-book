@@ -1,7 +1,7 @@
 import { createRng, gauss } from './rng'
 
 export type Point = [number, number]
-export type DatasetShape = 'blobs' | 'aniso' | 'moons'
+export type DatasetShape = 'blobs' | 'aniso' | 'moons' | 'circles' | 'varied'
 
 export function generateDataset(
   shape: DatasetShape,
@@ -16,7 +16,41 @@ export function generateDataset(
       return aniso(rng, n)
     case 'moons':
       return moons(rng, n)
+    case 'circles':
+      return circles(rng, n)
+    case 'varied':
+      return varied(rng, n)
   }
+}
+
+/** Two concentric rings — a dense inner disc encircled by an outer ring. */
+function circles(rng: () => number, n: number): Point[] {
+  const cx = 340
+  const cy = 200
+  const half = Math.floor(n / 2)
+  const out: Point[] = []
+  for (let i = 0; i < n; i++) {
+    const inner = i < half
+    const r = (inner ? 52 : 132) + gauss(rng, 0, 7)
+    const t = 2 * Math.PI * rng()
+    out.push([cx + r * Math.cos(t), cy + r * Math.sin(t)])
+  }
+  return out
+}
+
+/** Three blobs of deliberately different density — DBSCAN's hard case. */
+function varied(rng: () => number, n: number): Point[] {
+  const specs: { c: Point; sd: number }[] = [
+    { c: [180, 170], sd: 16 },
+    { c: [380, 150], sd: 34 },
+    { c: [500, 260], sd: 24 },
+  ]
+  const out: Point[] = []
+  for (let i = 0; i < n; i++) {
+    const s = specs[i % 3]
+    out.push([gauss(rng, s.c[0], s.sd), gauss(rng, s.c[1], s.sd)])
+  }
+  return out
 }
 
 function blobs(rng: () => number, n: number): Point[] {
