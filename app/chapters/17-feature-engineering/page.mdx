@@ -1,0 +1,629 @@
+import FeatureScaling from '@/components/FeatureScaling'
+import PolynomialFeatures from '@/components/PolynomialFeatures'
+import CategoricalEncoding from '@/components/CategoricalEncoding'
+import CyclicalEncoding from '@/components/CyclicalEncoding'
+import PyodideEditor from '@/components/PyodideEditor'
+
+export const metadata = {
+  title: 'Feature engineering',
+  description:
+    'The unglamorous craft that decides whether anything else matters. Scaling, basis expansion, encoding categories, cyclical features, and the cardinal sin of leakage — with four interactive visualisations, runnable Python, and five problems.',
+  openGraph: {
+    title: 'Feature engineering',
+    description:
+      'An interactive walk-through of feature engineering — scaling, the manual kernel trick, encodings, cyclical features, and data leakage.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 17 · Part V — More classical models
+</p>
+
+# Feature engineering
+
+*The unglamorous, decisive craft of turning raw data into the columns a model
+can actually use — where more problems are won and lost than in any choice of
+algorithm.*
+
+Two teams are handed the same dataset and the same week. The first team treats
+it as a modelling problem: they reach for the most powerful algorithm they
+know, tune its hyperparameters into the night, stack three models on top of one
+another, and squeeze out every decimal the architecture will give. The second
+team barely changes their model at all — plain logistic regression, untouched
+since the first afternoon — and spends the week on the *columns* instead. They
+split a timestamp into hour-of-day and day-of-week. They take the ratio of two
+numbers that, alone, said nothing. They fold a sprawling category down to the
+one number that mattered. When the scores come in, the second team has won, and
+it is not close.
+
+This is the open secret of applied machine learning: the model gets the glory,
+but the features do the work. Given good features, a humble linear model is
+hard to beat; given bad ones, no architecture on earth will save you.
+Everything in this book so far has quietly assumed the features were already
+there — that `x` arrived as a clean, sensible vector. This chapter is about
+where that vector actually comes from, which is to say, about the most
+consequential and least celebrated craft in the field.
+
+By the end you will know why a feature measured in thousands can silently bully
+one measured in fractions, how to make a straight-line model draw curves by
+handing it the right columns, why encoding the hour of the day as a number from
+0 to 23 is a small disaster, and the single most expensive mistake in all of
+machine learning — the one that makes your scores look wonderful right up until
+they meet the real world.
+
+## 1. The unglamorous truth
+
+It is worth stating plainly, because the field's incentives point the other
+way. Papers are written about models; competitions are remembered for the
+winning architecture; the glamorous word is "algorithm". But sit with
+practitioners and you hear the opposite emphasis, over and over: the model is
+rarely the bottleneck. Swap a gradient-boosted tree for a random forest and you
+move a metric by a fraction of a percent; engineer one genuinely informative
+feature and you move it by ten.
+
+The reason is simple. Every algorithm in this book is a way of *combining* the
+features it is given — drawing a boundary, averaging a neighbourhood, splitting
+on a column. None of them can use information that is not present in the input,
+and none can un-mangle information that the input presents badly. The features
+define the space of questions the model is even able to ask. Choose them well
+and the easiest model in the world has a clean problem to solve; choose them
+badly and the hardest model is doomed before it starts.
+
+So feature engineering is not preprocessing — a chore to finish before the real
+work. It *is* the real work, for most problems most of the time. The rest of
+this chapter is the toolkit.
+
+## 2. A feature is a choice
+
+Start by being precise about what a feature is. Raw data is whatever you were
+given: a timestamp like `2026-03-14T23:47:00`, a postcode, a free-text review,
+a price in yen sitting next to a count of clicks. A *feature* is a number (or a
+small set of numbers) you derive from that raw material and place in a column of
+the matrix `X` the model consumes. The timestamp is not a feature; the *hour of
+day* you extract from it is. The review is not a feature; the *count of
+exclamation marks*, or the *TF-IDF weight of the word "refund"*, is.
+
+That gap — between raw data and feature matrix — is where all the decisions
+live, and they are decisions, not formalities. Encode the postcode one way and
+the model sees geography; encode it another and it sees noise. Every column is a
+hypothesis about what matters, expressed in the only language the model
+understands: numbers on comparable scales. The chapter's techniques are the
+recurring patterns for getting from one to the other — and the first, and most
+common, is the humblest.
+
+## 3. Scale: putting features on equal footing
+
+Most models have no idea what your numbers *mean*; they only see their sizes.
+And anything that measures distance or follows a gradient is therefore at the
+mercy of the units you happened to record. A k-nearest-neighbour classifier
+(Chapter 4) finds "close" points by Euclidean distance; a feature that ranges
+into the thousands contributes thousands to that distance while a feature in
+[0, 1] contributes almost nothing — so the big-numbered feature wins, not
+because it matters more, but because its numbers are bigger.
+
+<FeatureScaling />
+
+The class here depends on *both* features equally, but in raw units the second
+one is invisible — the boundary comes out nearly vertical, and the query's
+neighbours are chosen by the first feature alone. **Standardisation** — subtract
+each feature's mean, divide by its standard deviation, so every column has mean
+0 and standard deviation 1 — puts them on equal footing, and the model finally
+hears both. (Min–max scaling to [0, 1] does the same job; standardisation is the
+default.) The same affliction hits gradient descent (Chapter 6): mismatched
+scales stretch the loss surface into a steep, narrow valley that the gradient
+zig-zags down slowly. Scaling round it out. Note the one family that does *not*
+care — tree-based models (Chapters 12–14) split one feature at a time and never
+compare across columns, so they are immune to scale. For everything else,
+standardise first.
+
+## 4. Making linear models curve: basis expansion
+
+Here is the most powerful move in the toolkit, and the one that most changes
+what a simple model can do. A linear model draws straight boundaries — but only
+*in the features you give it*. Hand it new columns built from the old ones and
+"straight" in the new space becomes "curved" in the original.
+
+<PolynomialFeatures />
+
+On the raw features the logistic model is helpless — no straight line separates
+the XOR checkerboard or the nested circles, and it sits near chance. But tick
+the interaction column $x_1 x_2$ and the XOR pattern falls apart cleanly; tick
+the squares $x_1^2, x_2^2$ and a circular boundary appears. The model never
+changed — it is still drawing a straight boundary, now in a space with an extra
+manufactured axis, and a plane in that space is a curve back here.
+
+You have seen this idea before. This is precisely the **kernel trick** of
+Chapter 15 — lift the data into a richer space where a line suffices — except
+there the lift was implicit, hidden inside a kernel function, and here you build
+the columns *by hand* and can read them off. **Polynomial features**,
+**interaction terms** (products of features, which capture "this matters only
+when that is also true"), and other **basis functions** are how a linear model
+punches far above its weight. The cost, as ever, is that more columns mean more
+ways to overfit — which is exactly why basis expansion and the regularisation of
+Chapter 9 are natural partners.
+
+## 5. Encoding categories
+
+Models eat numbers, but the world is full of categories — colours, cities,
+product types, postcodes. You cannot feed the string "Cairo" to logistic
+regression; you must turn it into numbers, and *how* you do it matters more than
+it first appears.
+
+<CategoricalEncoding />
+
+**One-hot encoding** turns a $k$-value category into $k$ binary columns, exactly
+one of them hot — honest, because it implies no ordering, but it explodes the
+column count when a category has thousands of levels (every postcode its own
+column). **Ordinal encoding** maps the categories to integers $0, 1, 2, \dots$ —
+compact, but it invents an order the model will believe: nothing says Quito is
+"greater than" Lagos, yet the integer says so. **Target (mean) encoding**
+replaces each category with the average label for that category — one column,
+richly informative, and a favourite for high-cardinality features. But notice
+what it does: it looks at the label `y` to build a feature. That is borrowing
+from the very thing you are trying to predict, and done carelessly it is a
+disaster — which brings us, in §11, to the cardinal sin. The right encoding
+depends on the cardinality, whether order is real, and how carefully you can
+guard the leak.
+
+## 6. Cyclical and temporal features
+
+Some features are periodic — the hour of the day, the day of the week, the month
+of the year, the angle of a compass — and the naive encoding gets them
+spectacularly wrong. Write the hour as the integer 0 to 23 and you have told the
+model that 23:00 and 00:00 are 23 apart, the furthest two hours can possibly
+be, when in fact they are a single hour apart. Any pattern that straddles
+midnight is now invisible.
+
+<CyclicalEncoding />
+
+The fix is to respect the geometry: place the periodic quantity on a *circle*
+with a sine/cosine pair, $\big(\sin\frac{2\pi t}{T}, \cos\frac{2\pi t}{T}\big)$,
+so that the last value wraps smoothly back to the first. On the clock face 23:00
+sits right next to 00:00, exactly as it should, and the late-night pattern
+becomes learnable. The same respect for structure unlocks the rest of a
+timestamp: a raw date is nearly useless, but explode it into day-of-week, month,
+is-weekend, is-holiday, and days-since-signup, and a flat column becomes a rich
+description of *when* — calendar structure the model could never have recovered
+on its own.
+
+## 7. Taming skew and outliers
+
+Real-valued features are often badly behaved. Incomes, city populations, website
+visits, transaction amounts — these are typically **right-skewed**, a great mass
+of small values with a long tail of enormous ones, and that tail wreaks havoc:
+it dominates distances, drags means around, and stretches gradients. The
+standard remedy is a **log transform**, $x \mapsto \log(1 + x)$, which pulls the
+tail in and turns a lopsided distribution into a roughly symmetric one — often
+the single highest-leverage transform on tabular data. (Box–Cox and Yeo–Johnson
+are tunable generalisations; the latter handles zeros and negatives.) For
+genuine outliers — a fat-fingered data-entry error, a sensor glitch — **clipping**
+or **winsorising** (capping values at, say, the 1st and 99th percentiles) tames
+the extreme without throwing the whole row away.
+
+## 8. Missing data
+
+Real datasets have holes, and most models cannot eat a blank. The crude response
+— drop every row with any missing value — can quietly discard most of your data
+and bias what survives, since the rows with gaps are rarely a random sample.
+**Imputation** fills the holes instead: the mean or median of the column for a
+quick fix, a model trained to predict the missing value for a careful one. But
+there is a subtlety worth internalising: the *fact* that a value was missing is
+often itself informative — an unanswered income question, a blank optional field
+— so adding a **missingness indicator** column (1 if the value was missing, 0
+otherwise) alongside the imputed value frequently earns its keep. Missingness is
+data too.
+
+## 9. Text and other raw signals
+
+Free text is the raw signal feature engineering handles most often, and Chapter
+16 already showed the core move: the **bag of words**, which turns a document
+into a vector of word counts. The standard refinement is **TF-IDF** — term
+frequency times inverse document frequency — which scales each word's count down
+by how common the word is across all documents, so that ubiquitous words like
+"the" are crushed while rare, discriminative words like "refund" are amplified.
+The same instinct generalises beyond text: images become edges, colour
+histograms, and texture statistics; audio becomes spectral coefficients. These
+hand-built signal features are the historical workhorses — and, not
+coincidentally, the very thing deep learning later learned to replace by
+discovering its own features, the subject the final part of the book builds
+towards.
+
+## 10. Feature selection
+
+More features are not automatically better. Irrelevant columns add noise,
+redundant ones add nothing but cost, and both inflate variance and the risk of
+overfitting — the curse of dimensionality, met again. So part of the craft is
+*removing* features, and there are three families of method. **Filter** methods
+rank each feature by a cheap, model-blind score — its correlation or mutual
+information with the target — and keep the top ones. **Wrapper** methods search
+over subsets of features, retraining the model to score each candidate set:
+accurate, but expensive. **Embedded** methods let the model select as it fits —
+most elegantly the L1 (lasso) regularisation of Chapter 9, which drives the
+coefficients of useless features to exactly zero, performing selection and
+fitting in one stroke. Often the most valuable feature is the one you delete.
+
+## 11. The cardinal sin: leakage
+
+Now the mistake that silently inflates every score and then collapses the moment
+the model meets reality. **Data leakage** is letting information that will not be
+available at prediction time sneak into your features — and its most common,
+most insidious form is using the *test data*, or the *whole dataset*, to build
+features that you then evaluate on that same data.
+
+The target encoding of §5 is the classic trap. Replace each category with its
+mean label computed over the *entire* dataset, and every row's feature has
+quietly peeked at every other row's answer — including, when you cross-validate,
+the rows you are about to test on. A column built this way can look strongly
+predictive even when the category is pure noise, because it has memorised the
+labels rather than learnt from them. The cross-validation of Chapter 11, which
+was supposed to give you an honest estimate, now lies: it reports a wonderful
+score that evaporates in production.
+
+The rule that prevents it is absolute: **every transform is part of the model,
+and must be fit on the training fold only.** Fit your scaler's mean and standard
+deviation, your imputer's medians, your target encoder's category averages on
+the training data, then *apply* those frozen parameters to the validation and
+test data. Inside cross-validation, that means refitting every transform inside
+each fold. Get this backwards — scale or encode using the full dataset before
+splitting — and you have leaked, and you will not find out until it is expensive.
+Problem 5 catches the leak in the act.
+
+## 12. Implementing it yourself
+
+The core transforms, in plain NumPy — and, crucially, fit on train and applied
+to test, never the other way around.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+
+# ── Standardisation: fit on train, apply to test ──
+def fit_standardiser(X):
+    return X.mean(0), X.std(0) + 1e-9
+def apply_standardiser(stats, X):
+    mu, sd = stats
+    return (X - mu) / sd
+
+Xtr = rng.normal([100, 0.5], [40, 0.2], (6, 2))
+stats = fit_standardiser(Xtr)            # parameters learned from TRAIN only
+print("standardised train:\\n", np.round(apply_standardiser(stats, Xtr), 2))
+
+# ── Polynomial / interaction expansion ──
+def expand(X):
+    x1, x2 = X[:, 0], X[:, 1]
+    return np.column_stack([x1, x2, x1**2, x2**2, x1 * x2])
+print("\\nexpanded columns:", expand(Xtr).shape[1])
+
+# ── One-hot encoding ──
+def one_hot(values, k):
+    return np.eye(k)[values]
+print("\\none-hot of [0,2,1]:\\n", one_hot(np.array([0, 2, 1]), 3))
+
+# ── Cyclical encoding of the hour ──
+def cyclical(t, period):
+    a = 2 * np.pi * t / period
+    return np.column_stack([np.sin(a), np.cos(a)])
+print("\\nhours 23 and 0 as (sin,cos):\\n", np.round(cyclical(np.array([23, 0]), 24), 3))
+
+# ── Leakage-free target encoding (means from TRAIN only) ──
+def fit_target_encoder(cats, y, k):
+    base = y.mean()
+    table = np.full(k, base)
+    for c in range(k):
+        m = cats == c
+        if m.sum() > 0:
+            table[c] = y[m].mean()
+    return table
+cats_tr = np.array([0, 0, 1, 1, 2, 2]); y_tr = np.array([1, 1, 0, 1, 0, 0])
+table = fit_target_encoder(cats_tr, y_tr, 3)   # fit on TRAIN
+print("\\ntarget-encoding table (per category):", np.round(table, 2))
+`}
+/>
+
+Every one of these returns *parameters* learned on the training data — a mean, a
+table, nothing more — that you then apply to unseen data. That discipline is the
+whole game: a transform is a tiny model, and a model fit on the test set is no
+test at all.
+
+## 13. Problems
+
+### Problem 1 — Features over models, and the leak
+
+A conceptual question. (a) Standardisation changes everything for k-nearest
+neighbours and gradient descent but *nothing* for a decision tree. Why? (b)
+Give a concrete example of data leakage and explain exactly how it makes a
+cross-validation score optimistic. (c) Target encoding replaces a category with
+its mean label. What does that buy you, and what is the risk?
+
+<details>
+  <summary>Show solution</summary>
+
+**(a)** kNN ranks points by Euclidean distance and gradient descent steps along
+a loss surface whose shape depends on the feature scales — both compare and
+combine features *across columns*, so the relative sizes of those columns change
+the answer. A decision tree only ever splits on *one feature at a time*,
+thresholding it (`x_j < t`); rescaling that feature just rescales the threshold
+and leaves every split — and the whole tree — identical. Trees are invariant to
+any monotonic per-feature transform; distance- and gradient-based models are not.
+
+**(b)** Example: you standardise the full dataset (computing each feature's mean
+and standard deviation over *all* rows) and *then* split into train and test.
+The test rows have now influenced the scaling parameters applied to the training
+rows, and vice versa — information has crossed the split. More dramatically,
+target-encode a category using the whole dataset and each feature value contains
+the labels of the test rows. The model is, in effect, partly told the test
+answers, so cross-validation reports a score it cannot reproduce on genuinely
+unseen data.
+
+**(c)** Target encoding turns a high-cardinality category (thousands of cities)
+into a single, directly predictive column — compact and powerful. The risk is
+leakage: because the column is built from `y`, computing it in-sample lets each
+row peek at its own label (and, across a split, at the test labels), inflating
+the score. The fix is to compute the category means out-of-fold — on data the
+row was not part of.
+
+</details>
+
+### Problem 2 — Standardise, and watch kNN change
+
+On two features with mismatched scales, find a query point's nearest neighbours
+before and after standardisation, and show the neighbour set — and the predicted
+class — change.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(7)
+n = 60
+x1 = rng.uniform(0, 1000, n)          # big scale
+x2 = rng.uniform(0, 1, n)             # small scale
+y = ((x1 / 1000 + x2) > 1).astype(int)   # depends on BOTH
+X = np.column_stack([x1, x2])
+query = np.array([500.0, 0.5])
+
+# Your code:
+#   1. find the 5 nearest neighbours of 'query' in RAW units; print their indices
+#   2. standardise X (and query) with X's mean/std; find the 5 nearest again
+#   3. show the two neighbour sets differ, and the majority-vote class can flip
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(7)
+n = 60
+x1 = rng.uniform(0, 1000, n); x2 = rng.uniform(0, 1, n)
+y = ((x1 / 1000 + x2) > 1).astype(int)
+X = np.column_stack([x1, x2]); query = np.array([500.0, 0.5])
+
+def knn(Xs, q, k=5):
+    d = np.sqrt(((Xs - q) ** 2).sum(1))
+    return np.argsort(d)[:k]
+
+raw = knn(X, query)
+mu, sd = X.mean(0), X.std(0)
+std = knn((X - mu) / sd, (query - mu) / sd)
+
+print("raw neighbours:       ", raw, "-> class", int(y[raw].mean() >= 0.5))
+print("standardised neighbours:", std, "-> class", int(y[std].mean() >= 0.5))
+print("overlap:", len(set(raw) & set(std)), "of 5")
+`}
+/>
+
+In raw units the distance is dominated by x1 (it ranges to 1000), so the
+"nearest" points are simply those with similar x1 — x2 barely enters. After
+standardisation both features count equally, the neighbour set changes
+substantially, and the predicted class can flip. Same data, same k, different
+answer — purely because of units.
+
+</details>
+
+### Problem 3 — Basis expansion by hand
+
+Show that logistic regression fails on XOR with the raw features, then add the
+interaction term and watch the *same* model separate it perfectly.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(z): return np.where(z>=0, 1/(1+np.exp(-z)), np.exp(z)/(1+np.exp(z)))
+def fit_logistic(X, y, steps=500, lr=0.5):
+    mu, sd = X.mean(0), X.std(0) + 1e-9
+    Z = (X - mu) / sd
+    w = np.zeros(X.shape[1]); b = 0.0
+    for _ in range(steps):
+        g = sigmoid(Z @ w + b) - y
+        w -= lr * (Z.T @ g) / len(y); b -= lr * g.mean()
+    return lambda Xn: sigmoid(((Xn - mu) / sd) @ w + b)
+
+rng = np.random.default_rng(3)
+X = rng.uniform(-2, 2, (200, 2))
+y = ((X[:, 0] > 0) ^ (X[:, 1] > 0)).astype(int)   # XOR
+
+# Your code:
+#   1. fit logistic on the raw [x1, x2]; print accuracy (it will be ~chance)
+#   2. add the interaction column x1*x2; fit again; print accuracy
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(z): return np.where(z>=0, 1/(1+np.exp(-z)), np.exp(z)/(1+np.exp(z)))
+def fit_logistic(X, y, steps=500, lr=0.5):
+    mu, sd = X.mean(0), X.std(0) + 1e-9
+    Z = (X - mu) / sd
+    w = np.zeros(X.shape[1]); b = 0.0
+    for _ in range(steps):
+        g = sigmoid(Z @ w + b) - y
+        w -= lr * (Z.T @ g) / len(y); b -= lr * g.mean()
+    return lambda Xn: sigmoid(((Xn - mu) / sd) @ w + b)
+
+rng = np.random.default_rng(3)
+X = rng.uniform(-2, 2, (200, 2))
+y = ((X[:, 0] > 0) ^ (X[:, 1] > 0)).astype(int)
+
+f_raw = fit_logistic(X, y)
+print("raw [x1, x2] accuracy:        ", round(((f_raw(X) >= 0.5) == y).mean(), 3))
+
+Xi = np.column_stack([X, X[:, 0] * X[:, 1]])      # + interaction
+f_int = fit_logistic(Xi, y)
+print("with x1*x2 accuracy:          ", round(((f_int(Xi) >= 0.5) == y).mean(), 3))
+`}
+/>
+
+XOR is the textbook case a linear model cannot touch: no line separates the four
+quadrants. But the product $x_1 x_2$ is positive in two diagonal quadrants and
+negative in the other two — exactly the class pattern — so adding that one column
+lets a straight boundary in the expanded space solve it. The kernel trick of
+Chapter 15, done with your hands.
+
+</details>
+
+### Problem 4 — Encode a category three ways
+
+Take a categorical column and produce its one-hot, ordinal, and target
+encodings; compare the shapes and what each implies.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+cities = np.array([0, 1, 2, 0, 1, 2, 0, 1, 2, 0])   # 3 cities, repeated
+y      = np.array([1, 0, 1, 1, 0, 0, 1, 0, 1, 1])
+
+# Your code:
+#   1. one-hot encode 'cities' (shape n x 3)
+#   2. ordinal is just 'cities' itself (shape n x 1) — note the implied order
+#   3. target encode: replace each city with its mean y; print the 3 tables/columns
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+cities = np.array([0, 1, 2, 0, 1, 2, 0, 1, 2, 0])
+y      = np.array([1, 0, 1, 1, 0, 0, 1, 0, 1, 1])
+
+one_hot = np.eye(3)[cities]
+print("one-hot shape:", one_hot.shape, "(one column per city)")
+print(one_hot[:3].astype(int))
+
+print("\\nordinal:", cities, " <- implies city 2 > city 1 > city 0 (a fiction)")
+
+table = np.array([y[cities == c].mean() for c in range(3)])
+target = table[cities]
+print("\\ntarget table per city:", np.round(table, 2))
+print("target column:        ", np.round(target, 2))
+`}
+/>
+
+One-hot spends three columns and implies no order; ordinal spends one but
+invents the order 0 < 1 < 2; target spends one and is directly predictive but
+was built from `y`. The three are not interchangeable — they encode different
+assumptions, and target encoding carries the leakage risk the next problem makes
+concrete.
+
+</details>
+
+### Problem 5 — Leakage, caught in the act
+
+The capstone. Build a target-encoded feature from a category that is *pure
+noise* — independent of the label — and show it looks predictive in-sample but
+is worthless out-of-fold. This is leakage, measured.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(5)
+K, N = 50, 150
+cats = rng.integers(0, K, N)        # 50 categories, ~3 rows each
+y    = rng.integers(0, 2, N)        # label INDEPENDENT of category — useless feature!
+
+def target_table(c, l, k):
+    base = l.mean(); t = np.full(k, base)
+    for j in range(k):
+        m = c == j
+        if m.sum() > 0: t[j] = l[m].mean()
+    return t
+
+# Your code:
+#   1. in-sample: build the table from ALL data, encode, threshold at 0.5,
+#      and measure accuracy against y  (it will look high — that's the leak)
+#   2. out-of-fold: for each row i, build the table WITHOUT row i, encode row i,
+#      and measure accuracy  (it will collapse to ~chance, the truth)
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(5)
+K, N = 50, 150
+cats = rng.integers(0, K, N)
+y    = rng.integers(0, 2, N)
+
+def target_table(c, l, k):
+    base = l.mean(); t = np.full(k, base)
+    for j in range(k):
+        m = c == j
+        if m.sum() > 0: t[j] = l[m].mean()
+    return t
+
+# in-sample (LEAKED): table built from all data, including each row's own label
+table = target_table(cats, y, K)
+in_sample = ((table[cats] >= 0.5).astype(int) == y).mean()
+
+# out-of-fold (HONEST): each row encoded from a table that excludes it
+oof = 0
+for i in range(N):
+    mask = np.arange(N) != i
+    t = target_table(cats[mask], y[mask], K)
+    oof += int((t[cats[i]] >= 0.5) == y[i])
+oof /= N
+
+print(f"in-sample accuracy:   {in_sample:.3f}   <- looks predictive (LEAKED)")
+print(f"out-of-fold accuracy: {oof:.3f}   <- the truth (~chance)")
+`}
+/>
+
+The category is random — it has no relationship with the label whatsoever — yet
+in-sample target encoding makes it look distinctly predictive, because with only
+a few rows per category each encoded value is dominated by the row's own label.
+Compute the same feature out-of-fold and the illusion vanishes back to chance.
+This is exactly how leakage flatters a model in cross-validation and then betrays
+it in production, and exactly why every transform must be fit inside the fold.
+
+</details>
+
+---
+
+Feature engineering is where domain knowledge enters machine learning. The
+algorithms in this book are general — they know nothing about spam, or houses,
+or heartbeats — and it is the features that carry what you understand about the
+problem into a form the algorithm can use. That is why it rewards curiosity
+about the data over cleverness about the model, and why it remains, even now,
+the part of the work that most separates a good practitioner from a great one.
+
+With this chapter the supervised half of the book is complete: you can take raw
+data, shape it into features, fit a model from a wide repertoire, tune it
+honestly, and read its errors. What you have never done is work *without
+labels*.
+
+*Next: Chapter 18 — k-means clustering.* Part VI leaves labels behind. When no
+one tells you the answers, can a model still find the structure hiding in the
+data — the groups, the patterns, the hidden axes? Unsupervised learning begins.
