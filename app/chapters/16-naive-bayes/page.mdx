@@ -1,0 +1,687 @@
+import ClassConditional from '@/components/ClassConditional'
+import NaiveAssumption from '@/components/NaiveAssumption'
+import SpamFilter from '@/components/SpamFilter'
+import GenVsDisc from '@/components/GenVsDisc'
+import PyodideEditor from '@/components/PyodideEditor'
+
+export const metadata = {
+  title: 'Naive Bayes',
+  description:
+    'A classifier built from Bayes’ rule and one brazenly-false independence assumption — fast, frugal with data, and the canonical spam filter. Generative vs discriminative, Gaussian and multinomial NB, Laplace smoothing, with four interactive visualisations, runnable Python, and five problems.',
+  openGraph: {
+    title: 'Naive Bayes',
+    description:
+      'An interactive walk-through of naive Bayes — Bayes’ rule, the naive assumption, Gaussian and multinomial NB, the spam filter, and generative vs discriminative.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 16 · Part V — More classical models
+</p>
+
+# Naive Bayes
+
+*A classifier built almost entirely from Bayes' rule and one brazenly-false
+assumption — fast, frugal with data, and despite the lie at its core, the
+spam filter that actually worked.*
+
+A test for a rare disease is, the leaflet promises, "99% accurate." You test
+positive. Most people read that number and panic — and most people are wrong,
+often wildly, because the leaflet's 99% answers a different question from the
+one that matters. The question you care about is *given that I tested
+positive, what is the chance I am actually sick?* — and if the disease is rare
+enough, the answer can be a reassuring few percent even after a positive test.
+The gap between those two numbers is the single most misunderstood idea in
+probability, and closing it takes exactly one formula: Bayes' rule.
+
+Naive Bayes is that formula scaled up into a classifier. Where logistic
+regression and the support vector machine drew a boundary and asked which side
+a point fell on, naive Bayes does something stranger and older. For each class
+it builds a little model of *what that class's data looks like* — what a spam
+email tends to contain, what a healthy blood sample tends to read — and then,
+faced with a new point, it asks which class was most likely to have produced
+it. It reasons backwards from effect to cause, which is what Bayes' rule is
+for.
+
+The catch is in the name. To make the backwards reasoning tractable, naive
+Bayes assumes every feature is independent of every other within a class — an
+assumption so brazenly false that it is almost funny, and yet the classifier
+it produces is fast, frugal with data, and very hard to beat as a first
+attempt, especially on text. By the end of this chapter you will have built a
+working spam filter out of nothing but counting and Bayes' rule, seen exactly
+what the naive assumption throws away, and understood the lovely paradox at
+the centre of the method: that being wrong about the probabilities can still
+mean being right about the answer.
+
+## 1. The reverend's classifier
+
+Every classifier so far has been *discriminative*. Logistic regression, the
+SVM, the trees — each one models the boundary between classes directly, asking
+$P(y \mid x)$: given this input, which label? They never pause to wonder what
+the inputs of each class actually look like; they only care where to cut.
+
+Naive Bayes belongs to the other great family, the *generative* classifiers,
+and the difference is a genuine change of worldview. A generative model asks,
+for each class, $P(x \mid y)$: if I told you this email were spam, what words
+would you expect to see? It learns a little story of how each class produces
+its data. Then, handed a new point, it runs every class's story forward, sees
+which one was most likely to have generated what you observed, and picks that
+one. Discriminative models learn to *tell the classes apart*; generative
+models learn to *imitate each class*, and classify by asking who imitates the
+data best.
+
+That backwards step — from "what does each class generate" to "which class did
+this come from" — is exactly the inversion Bayes' rule performs. So before any
+classifier, we need the rule itself.
+
+## 2. Bayes' rule for classification
+
+Bayes' rule relates the two conditional probabilities you can run in either
+direction:
+
+$$P(y \mid x) = \frac{P(x \mid y)\,P(y)}{P(x)}.$$
+
+Read it as a recipe. $P(y)$ is the **prior** — how common the class is before
+you look at the features (spam is, say, 40% of mail). $P(x \mid y)$ is the
+**likelihood** — how well class $y$'s story explains the data you see.
+Multiply them and you get something proportional to the **posterior** $P(y
+\mid x)$, the thing you actually want: the probability of the class given the
+evidence. To classify, compute this for every class and take the largest.
+
+The denominator $P(x)$ is the probability of the data under *any* class. It is
+the same for every class, so when you compare classes it cancels — and the
+whole decision reduces to
+
+$$\hat{y} = \arg\max_{y}\ P(x \mid y)\,P(y).$$
+
+Likelihood times prior, biggest wins. That is the entire generative recipe,
+and it is also the resolution of the disease-test paradox: the test's accuracy
+is a likelihood, but the answer you want is a posterior, and the prior — the
+rarity of the disease — is exactly the term that the panicked reading forgets.
+Everything now hinges on one hard piece: the likelihood $P(x \mid y)$.
+
+## 3. The trouble with the likelihood
+
+Here is the wall. $P(x \mid y)$ is the probability of an entire feature vector
+at once — every feature, jointly. Estimating it honestly means knowing, for
+each class, how probable *every combination* of feature values is. With a
+handful of binary features that is already a table of $2^p$ entries; with the
+ten-thousand-word vocabulary of an email it is a number with thousands of
+digits. You would need more emails than there are atoms in the galaxy to fill
+that table with reliable counts.
+
+This is the curse of dimensionality wearing a new hat. Bayes' rule is exact
+and gives us precisely the quantity we want, but the likelihood at its heart
+is a joint distribution over all features, and joint distributions in high
+dimensions are unknowable from any realistic amount of data. The rule is
+useless unless we can cheapen the likelihood — drastically.
+
+## 4. The naive assumption
+
+Here is the cheat, and it is the whole method. *Assume that, within a class,
+the features are independent of one another.* Then the joint likelihood
+factors into a product of one-feature likelihoods:
+
+$$P(x \mid y) = P(x_1, x_2, \dots, x_p \mid y) = \prod_{j=1}^{p} P(x_j \mid y).$$
+
+The impossible joint table collapses into $p$ little one-dimensional
+distributions per class — a mean and variance for each feature, or a single
+word probability. Instead of an astronomically large count, you estimate $p
+\times k$ easy ones, each from the whole dataset. The classifier becomes
+trivial to fit and instant to evaluate.
+
+Is the assumption true? Almost never. The word "money" and the word "free"
+co-occur in spam far more than independence would predict; pixels next to each
+other are correlated; symptoms cluster. Naive Bayes cheerfully ignores all of
+it and pretends every feature is its own unrelated witness. The audacity is
+the point — and the rest of the chapter is about cashing in the convenience
+(§5, §7), measuring what the lie costs (§6), and understanding why, against
+all odds, it so often does not matter (§10).
+
+## 5. Gaussian naive Bayes
+
+For continuous features, the natural choice for each little one-dimensional
+likelihood is a **Gaussian**. Gaussian naive Bayes models each feature, within
+each class, as a bell curve — estimate its mean and variance from that class's
+training points, and you are done. The likelihood of a point is the product of
+its per-feature bell-curve heights; multiply by the prior, and you have the
+(unnormalised) posterior for each class.
+
+$$P(y = c \mid x) \propto P(c)\prod_{j=1}^{p} \mathcal{N}\!\big(x_j;\ \mu_{cj},\ \sigma_{cj}^2\big).$$
+
+Because everything is a product of exponentials, it is cleaner to work in
+logs — sum the log-priors and log-Gaussians — but the idea is exactly the
+picture below.
+
+<ClassConditional />
+
+Each class is just one Gaussian per feature — the bell curves drawn along the
+top and the right margins. Multiply them, weight by the prior, normalise, and
+the smooth posterior field appears, its half-way line the decision boundary.
+Slide the prior and the boundary slides too: make the orange class rare and it
+must clear a higher bar of evidence before naive Bayes is willing to call a
+point orange. That is "$\times\,P(y)$" made visible — the same prior that
+rescued us from the disease-test paradox.
+
+## 6. What "naive" costs you
+
+Now the bill. Modelling each feature with its own independent Gaussian has a
+sharp geometric consequence: each class's cloud is forced to be an
+**axis-aligned** ellipse. It can be wide or tall, but never *tilted* — because
+a tilt is precisely a correlation between features, and an independent model
+has, by construction, zero correlation. Naive Bayes literally cannot draw a
+diagonal cloud.
+
+<NaiveAssumption />
+
+At $\rho = 0$ the data really is axis-aligned and naive Bayes' upright ellipse
+fits it perfectly. Turn up the correlation and the true cloud tilts while
+naive Bayes' fitted ellipse stays stubbornly upright — the two peel apart, and
+that gap is the lie made visible. Its probabilities grow untrustworthy and its
+boundary bends away from the ideal. A model that *could* see correlation (a
+full-covariance Gaussian) would track the tilt; naive Bayes trades that
+fidelity for the enormous convenience of §4. Hold onto this picture — in §10
+we will find, surprisingly, that the bent boundary is often still good enough
+to decide correctly.
+
+## 7. Multinomial naive Bayes and text
+
+Where naive Bayes genuinely shines is text, and the model changes shape to fit
+it. Represent a document as a **bag of words** — just the count of each
+vocabulary word, order thrown away. Model each class as a weighted bag: a
+probability $P(w \mid y)$ for drawing each word $w$, estimated by counting how
+often $w$ appears in that class's training documents. A document's likelihood
+is then the product of its words' probabilities, and Bayes' rule does the
+rest. This is **multinomial naive Bayes**, and it is the classic spam filter.
+
+Working in logs, the decision becomes a running sum: start from the prior
+log-odds, then add, for each word, its **log-likelihood ratio** $\log
+\frac{P(w \mid \text{spam})}{P(w \mid \text{ham})}$ — positive if the word
+leans spam, negative if it leans ham. Every word is a piece of evidence
+dropped onto a scale.
+
+<SpamFilter />
+
+Toggle words and watch the needle move: "money", "free", "winner" shove it
+towards spam; "meeting", "project", "report" pull it back towards ham. Each
+word's contribution is exactly its log-likelihood ratio, and the total — prior
+plus every word — is the log-odds of spam. It is Bayes' rule as a tally sheet,
+which is why naive Bayes is so fast and so legible. But notice what happens
+when you switch off smoothing and add a word never seen in ham, and read on.
+
+## 8. Smoothing and log-space
+
+Two practical problems stand between the idea and a working filter, and both
+have one-line fixes.
+
+The first is the **zero-frequency problem**, which you just triggered. If a
+word never appeared in any spam training email, then $P(w \mid \text{spam}) =
+0$, and because the likelihood is a *product*, that single zero annihilates the
+entire spam probability — one unseen word vetoes all the others, no matter how
+spammy. The fix is **Laplace (add-one) smoothing**: pretend you saw every
+vocabulary word one extra time in each class,
+
+$$P(w \mid y) = \frac{\text{count}(w, y) + \alpha}{\big(\sum_{w'}\text{count}(w', y)\big) + \alpha\,|V|},$$
+
+with $\alpha = 1$. No probability is ever exactly zero, so no single word can
+veto the verdict — it can only tug. That is the difference you saw between a
+confident, broken 100% and a sensible answer.
+
+The second is **numerical underflow**. Multiplying thousands of small
+probabilities drives the result below the smallest number a computer can hold,
+and it rounds to zero. The fix is the one the spam widget already used
+silently: work in **log-space**, turning the product into a sum of logarithms.
+Adding ten thousand modest negative numbers is perfectly stable, and — bonus —
+turns the whole classifier into the running tally of §7.
+
+## 9. Generative vs discriminative
+
+Naive Bayes and the logistic regression of Chapter 7 are a famous pair: the
+**generative** and **discriminative** approaches to the *same* linear-ish
+boundary. In fact, under Gaussian naive Bayes' own assumptions, the posterior
+works out to be exactly the sigmoid of logistic regression — the two models
+are reaching for the same decision surface from opposite directions. One
+estimates each class's distribution and inverts with Bayes' rule; the other
+optimises the boundary directly.
+
+The difference shows when their assumptions diverge.
+
+<GenVsDisc />
+
+Here the two classes have very different spreads, so the Bayes-optimal
+boundary is a closed *curve*. Gaussian naive Bayes, modelling each class as its
+own Gaussian, produces a quadratic boundary that wraps the tight class;
+logistic regression, restricted to a straight line, simply cannot. And the
+learning curve on the right shows the generative model's other edge: because
+it makes more assumptions, naive Bayes squeezes more out of each data point
+and pulls ahead, especially when data is scarce. This is the classic result of
+Ng and Jordan — the generative model reaches its (sometimes higher) error
+floor *faster*. Model the classes, or model the split: two faces of one coin,
+and the real lesson of Part V.
+
+## 10. Why a false assumption still works
+
+We have called the independence assumption a lie three times now, so the
+obvious question is why naive Bayes works at all — and it does work, routinely
+beating fancier models on text. The resolution is subtle and worth holding
+onto: **classification only needs the argmax of the posterior to be right, not
+the posterior itself.**
+
+The naive assumption badly distorts the *values* of the probabilities. By
+treating correlated features as independent witnesses, it double-counts
+evidence and grows wildly overconfident — naive Bayes is the model most likely
+to tell you it is 99.99% sure when it should say 80% (a direct callback to the
+calibration troubles of Chapter 10). But the *ranking* of the classes is far
+more robust than the numbers attached to them. As long as the true class still
+comes out on top — even by a distorted, overconfident margin — the decision is
+correct. The probabilities are not to be trusted; the verdict often can be.
+
+**Complexity** seals the appeal. Training is a single pass over the data to
+count and average: $O(np)$ for $n$ points and $p$ features, with no iteration,
+no optimisation, nothing to tune but the smoothing constant. Prediction is
+$O(pk)$ — a sum of log-terms per class. It is about as cheap as machine
+learning gets, trivially parallel, and naturally **online**: a new email just
+updates a few counts. Fast, frugal, and good enough — the definition of a
+baseline worth beating.
+
+## 11. Implementing it yourself
+
+Gaussian naive Bayes, then a multinomial spam filter, from scratch.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+# Two 2-D classes — Gaussian naive Bayes should nail these.
+def make_blobs(n, seed, sep=2.0, sd=0.7):
+    rng = np.random.default_rng(seed)
+    y = np.arange(n) % 2
+    cx = np.where(y == 0, -sep, sep)
+    return np.stack([rng.normal(cx, sd), rng.normal(0, sd, n)], axis=1), y
+
+def fit_gnb(X, y):
+    classes = np.unique(y)
+    prior = np.array([(y == c).mean() for c in classes])
+    mean  = np.array([X[y == c].mean(0) for c in classes])
+    var   = np.array([X[y == c].var(0) + 1e-9 for c in classes])   # tiny floor
+    return classes, prior, mean, var
+
+def gnb_log_posterior(model, x):
+    classes, prior, mean, var = model
+    # sum of log-Gaussians per feature, plus the log prior
+    log_lik = (-0.5 * np.log(2 * np.pi * var) - (x - mean) ** 2 / (2 * var)).sum(1)
+    return np.log(prior) + log_lik
+
+def gnb_predict(model, X):
+    return model[0][np.array([gnb_log_posterior(model, x).argmax() for x in X])]
+
+X, y = make_blobs(300, 1)
+model = fit_gnb(X, y)
+acc = (gnb_predict(model, X) == y).mean()
+print(f"Gaussian NB accuracy: {acc:.3f}   (prior-only baseline: 0.500)")
+
+# ── Multinomial NB: a tiny spam filter with Laplace smoothing ──
+vocab = ['free', 'money', 'offer', 'meeting', 'project', 'report']
+docs = np.array([           # word counts per document
+    [2, 1, 1, 0, 1, 0], [1, 2, 1, 0, 0, 1], [2, 1, 2, 1, 0, 0],   # spam
+    [0, 1, 0, 2, 1, 1], [1, 0, 1, 1, 2, 1], [0, 1, 0, 2, 1, 2],   # ham
+])
+labels = np.array([1, 1, 1, 0, 0, 0])   # 1 = spam, 0 = ham
+
+def fit_mnb(docs, labels, alpha=1.0):
+    V = docs.shape[1]
+    log_prior, log_lik = [], []
+    for c in [0, 1]:
+        log_prior.append(np.log((labels == c).mean()))
+        counts = docs[labels == c].sum(0)
+        log_lik.append(np.log((counts + alpha) / (counts.sum() + alpha * V)))
+    return np.array(log_prior), np.array(log_lik)
+
+log_prior, log_lik = fit_mnb(docs, labels)
+def classify(counts):
+    score = log_prior + log_lik @ counts
+    return 'SPAM' if score[1] > score[0] else 'HAM'
+
+print("'free money offer'  ->", classify(np.array([1, 1, 1, 0, 0, 0])))
+print("'meeting report'    ->", classify(np.array([0, 0, 0, 1, 0, 1])))
+`}
+/>
+
+Gaussian NB nails the blobs in a single pass of means and variances, and the
+multinomial filter sorts spam from ham by adding up log-probabilities. No
+gradient descent, no iteration — just counting, and Bayes' rule.
+
+## 12. Problems
+
+### Problem 1 — Base rates and the generative idea
+
+A conceptual question. (a) A disease affects 1 in 1000 people. A test is 99%
+accurate in both directions (99% of sick people test positive; 99% of healthy
+people test negative). You test positive — what is the probability you are
+actually sick? Use Bayes' rule, and explain why the answer is so far from 99%.
+(b) What does it mean to call naive Bayes a *generative* classifier, as opposed
+to logistic regression's *discriminative*? (c) State the naive assumption
+precisely and give one concrete case where it is plainly false.
+
+<details>
+  <summary>Show solution</summary>
+
+**(a)** Let $S$ be sick, $+$ a positive test. $P(S) = 0.001$, $P(+\mid S) =
+0.99$, $P(+\mid \neg S) = 0.01$. By Bayes' rule,
+$$P(S \mid +) = \frac{P(+\mid S)P(S)}{P(+\mid S)P(S) + P(+\mid \neg S)P(\neg S)} = \frac{0.99 \times 0.001}{0.99 \times 0.001 + 0.01 \times 0.999} \approx 0.090.$$
+About **9%** — not 99%. The test's accuracy is the *likelihood* $P(+\mid S)$,
+but the answer you want is the *posterior* $P(S \mid +)$, and the prior
+$P(S)$ is tiny. Because healthy people vastly outnumber sick ones, the 1% of
+them who test positive (false positives) swamp the 99% of the few sick people
+who do. The base rate dominates.
+
+**(b)** A *generative* classifier models how each class produces data, $P(x
+\mid y)$, and inverts with Bayes' rule to get $P(y \mid x)$; you could even
+*sample* synthetic data from it. A *discriminative* classifier models the
+boundary $P(y \mid x)$ directly and cannot generate data. Naive Bayes is
+generative; logistic regression and the SVM are discriminative.
+
+**(c)** The naive assumption: given the class, the features are mutually
+independent, $P(x \mid y) = \prod_j P(x_j \mid y)$. Plainly false example: in
+spam, "free" and "money" co-occur far more than independence predicts; in
+images, neighbouring pixels are strongly correlated.
+
+</details>
+
+### Problem 2 — Bayes' rule by hand
+
+A 2-class problem with two binary features. From the training counts below,
+compute the posterior for a query under the naive assumption, and watch each
+feature move the decision.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+# Training set: 100 emails. Counts of feature presence within each class.
+#   feature 0 = contains "free",  feature 1 = contains "meeting"
+n_spam, n_ham = 40, 60
+# P(feature = 1 | class):
+p_free = {'spam': 30/40, 'ham': 6/60}      # "free" is spammy
+p_meet = {'spam': 4/40,  'ham': 45/60}     # "meeting" is hammy
+
+# Query: an email that contains BOTH "free" and "meeting".
+# Your code:
+#   1. prior P(spam), P(ham)
+#   2. naive likelihood P(x|spam) = p_free[spam]*p_meet[spam]; same for ham
+#   3. posteriors (normalise) and the predicted class
+#   4. redo with ONLY "free" present, and see how much "meeting" pulled back
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+n_spam, n_ham = 40, 60
+p_free = {'spam': 30/40, 'ham': 6/60}
+p_meet = {'spam': 4/40,  'ham': 45/60}
+prior = {'spam': n_spam/100, 'ham': n_ham/100}
+
+def posterior(free, meet):
+    # free, meet are 1 (present) or 0 (absent)
+    lik = {}
+    for c in ['spam', 'ham']:
+        pf = p_free[c] if free else (1 - p_free[c])
+        pm = p_meet[c] if meet else (1 - p_meet[c])
+        lik[c] = prior[c] * pf * pm
+    z = lik['spam'] + lik['ham']
+    return lik['spam'] / z
+
+print(f"P(spam | free & meeting) = {posterior(1, 1):.3f}")
+print(f"P(spam | free only)      = {posterior(1, 0):.3f}")
+print(f"P(spam | meeting only)   = {posterior(0, 1):.3f}")
+`}
+/>
+
+With only "free", the email looks like spam ($\approx 0.94$). Add "meeting"
+— a strongly hammy word — and the posterior collapses back below ½: the two
+independent pieces of evidence pull in opposite directions and naive Bayes
+multiplies them. Each feature is its own witness; the verdict is their product.
+
+</details>
+
+### Problem 3 — Gaussian NB from scratch
+
+Fit per-class, per-feature means and variances on 2-D blobs, classify by
+summing log-Gaussians plus the log-prior, and report the accuracy.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def make_blobs(n, seed, sep=1.8, sd=0.8):
+    rng = np.random.default_rng(seed)
+    y = np.arange(n) % 2
+    cx = np.where(y == 0, -sep, sep)
+    return np.stack([rng.normal(cx, sd), rng.normal(0, sd, n)], axis=1), y
+
+X, y = make_blobs(300, 2)
+
+# Your code:
+#   1. fit_gnb(X, y) -> per-class prior, mean[c], var[c]  (add 1e-9 to var)
+#   2. log posterior for a point = log(prior) + sum of log-Gaussians per feature
+#   3. predict by argmax; print training accuracy
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def make_blobs(n, seed, sep=1.8, sd=0.8):
+    rng = np.random.default_rng(seed)
+    y = np.arange(n) % 2
+    cx = np.where(y == 0, -sep, sep)
+    return np.stack([rng.normal(cx, sd), rng.normal(0, sd, n)], axis=1), y
+
+X, y = make_blobs(300, 2)
+
+def fit_gnb(X, y):
+    classes = np.unique(y)
+    prior = np.array([(y == c).mean() for c in classes])
+    mean  = np.array([X[y == c].mean(0) for c in classes])
+    var   = np.array([X[y == c].var(0) + 1e-9 for c in classes])
+    return classes, prior, mean, var
+
+def log_posterior(model, x):
+    classes, prior, mean, var = model
+    log_lik = (-0.5 * np.log(2 * np.pi * var) - (x - mean) ** 2 / (2 * var)).sum(1)
+    return np.log(prior) + log_lik
+
+model = fit_gnb(X, y)
+pred = np.array([model[0][log_posterior(model, x).argmax()] for x in X])
+print(f"training accuracy: {(pred == y).mean():.3f}")
+print("class means:", np.round(model[2], 2).tolist())
+`}
+/>
+
+Four numbers per class — two means and two variances — and a sum of
+log-Gaussians, and you have a working classifier. No optimisation, no
+iteration: the entire "training" is computing means and variances.
+
+</details>
+
+### Problem 4 — The spam filter, and the zero-frequency veto
+
+Build a multinomial NB filter on a small corpus, then show that an unseen word
+breaks it *without* Laplace smoothing and behaves *with* it.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+vocab = ['free', 'money', 'click', 'meeting', 'project', 'winner']
+docs = np.array([
+    [2, 1, 1, 1, 0, 1], [1, 2, 1, 0, 1, 1], [2, 1, 2, 1, 1, 0],   # spam
+    [1, 1, 0, 2, 1, 0], [0, 1, 1, 1, 2, 0], [1, 0, 1, 2, 1, 0],   # ham
+])                                    # note: 'winner' never appears in ham
+labels = np.array([1, 1, 1, 0, 0, 0])
+
+# Your code:
+#   1. fit_mnb(docs, labels, alpha): log_prior[c], log_lik[c][word]
+#   2. classify a clearly-HAM message ['meeting','project']
+#   3. add 'winner' to it; classify with alpha=0 (broken) and alpha=1 (fixed)
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+np.seterr(divide='ignore')
+
+vocab = ['free', 'money', 'click', 'meeting', 'project', 'winner']
+docs = np.array([
+    [2, 1, 1, 1, 0, 1], [1, 2, 1, 0, 1, 1], [2, 1, 2, 1, 1, 0],
+    [1, 1, 0, 2, 1, 0], [0, 1, 1, 1, 2, 0], [1, 0, 1, 2, 1, 0],
+])
+labels = np.array([1, 1, 1, 0, 0, 0])
+
+def fit_mnb(docs, labels, alpha=1.0):
+    V = docs.shape[1]
+    log_prior, log_lik = [], []
+    for c in [0, 1]:
+        log_prior.append(np.log((labels == c).mean()))
+        counts = docs[labels == c].sum(0)
+        log_lik.append(np.log((counts + alpha) / (counts.sum() + alpha * V)))
+    return np.array(log_prior), np.array(log_lik)
+
+def classify(model, counts):
+    log_prior, log_lik = model
+    score = log_prior + log_lik @ counts
+    return 'SPAM' if score[1] > score[0] else 'HAM', score
+
+def bag(words):
+    return np.array([words.count(w) for w in vocab])
+
+ham_msg = ['meeting', 'project']
+print("ham message, alpha=1:", classify(fit_mnb(docs, labels, 1), bag(ham_msg))[0])
+
+# add a word that never appeared in ham
+spammed = ham_msg + ['winner']
+print("+ 'winner', alpha=0:", classify(fit_mnb(docs, labels, 0), bag(spammed))[0], "<- vetoed!")
+print("+ 'winner', alpha=1:", classify(fit_mnb(docs, labels, 1), bag(spammed))[0], "<- smoothing saves it")
+`}
+/>
+
+Without smoothing, the single unseen word "winner" sets $P(\text{winner} \mid
+\text{ham}) = 0$, which zeroes the ham likelihood entirely — one word vetoes
+an otherwise clearly-ham message into "spam". Add-one smoothing gives every
+word a floor probability, so "winner" merely nudges the score instead of
+vetoing it, and the message stays ham. One line, and the classifier works.
+
+</details>
+
+### Problem 5 — Generative versus discriminative
+
+Train Gaussian NB and logistic regression on the *same* heteroscedastic data
+at growing sizes, and compare. The classes have different spreads, so NB's
+curved boundary can capture what a straight line cannot.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def hetero(n, seed):
+    rng = np.random.default_rng(seed)
+    y = np.arange(n) % 2
+    cx = np.where(y == 0, -1.2, 1.2)
+    sd = np.where(y == 0, 0.7, 1.7)          # class 1 is much broader
+    return np.stack([rng.normal(cx, sd), rng.normal(0, sd)], axis=1), y
+
+# Provided: Gaussian NB and logistic regression.
+def fit_gnb(X, y):
+    c = np.unique(y)
+    return (c, np.array([(y==k).mean() for k in c]),
+            np.array([X[y==k].mean(0) for k in c]),
+            np.array([X[y==k].var(0)+1e-9 for k in c]))
+def gnb_predict(m, X):
+    c, pr, mu, v = m
+    lp = lambda x: np.log(pr) + (-0.5*np.log(2*np.pi*v) - (x-mu)**2/(2*v)).sum(1)
+    return c[np.array([lp(x).argmax() for x in X])]
+def sigmoid(z): return 1/(1+np.exp(-z))
+def fit_logreg(X, y, lr=0.2, steps=300):
+    w = np.zeros(2); b = 0.0
+    for _ in range(steps):
+        g = sigmoid(X@w+b) - y; w -= lr*(X.T@g)/len(y); b -= lr*g.mean()
+    return w, b
+
+Xte, yte = hetero(3000, 999)
+# Your code: for n in [10, 30, 100, 400], average test accuracy of both models
+# over ~20 random training sets and print the two learning curves.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def hetero(n, seed):
+    rng = np.random.default_rng(seed)
+    y = np.arange(n) % 2
+    cx = np.where(y == 0, -1.2, 1.2); sd = np.where(y == 0, 0.7, 1.7)
+    return np.stack([rng.normal(cx, sd), rng.normal(0, sd)], axis=1), y
+
+def fit_gnb(X, y):
+    c = np.unique(y)
+    return (c, np.array([(y==k).mean() for k in c]),
+            np.array([X[y==k].mean(0) for k in c]),
+            np.array([X[y==k].var(0)+1e-9 for k in c]))
+def gnb_predict(m, X):
+    c, pr, mu, v = m
+    lp = lambda x: np.log(pr) + (-0.5*np.log(2*np.pi*v) - (x-mu)**2/(2*v)).sum(1)
+    return c[np.array([lp(x).argmax() for x in X])]
+def sigmoid(z): return 1/(1+np.exp(-z))
+def fit_logreg(X, y, lr=0.2, steps=300):
+    w = np.zeros(2); b = 0.0
+    for _ in range(steps):
+        g = sigmoid(X@w+b) - y; w -= lr*(X.T@g)/len(y); b -= lr*g.mean()
+    return w, b
+
+Xte, yte = hetero(3000, 999)
+print(f"{'n':>4}  {'NB':>6}  {'LogReg':>6}")
+for n in [10, 30, 100, 400]:
+    nb = lr = 0.0; R = 20
+    for k in range(R):
+        Xt, yt = hetero(n, k + 1)
+        nb += (gnb_predict(fit_gnb(Xt, yt), Xte) == yte).mean()
+        w, b = fit_logreg(Xt, yt)
+        lr += (((Xte @ w + b) >= 0).astype(int) == yte).mean()
+    print(f"{n:>4}  {nb/R:>6.3f}  {lr/R:>6.3f}")
+`}
+/>
+
+Naive Bayes stays ahead at every size. Its generative model knows the classes
+have different spreads, so it draws a *curved* boundary that hugs the tight
+class — geometry the straight logistic line cannot match — and it reaches that
+boundary from less data because it makes more assumptions. When those
+assumptions fit, generative beats discriminative; when they do not (§6),
+the reverse. That trade is the heart of the choice.
+
+</details>
+
+---
+
+Naive Bayes is the bargain of machine learning: one pass over the data to
+count and average, an assumption everyone knows is false, and in return a
+classifier that trains in a blink, runs on a phone, needs barely any data, and
+embarrasses far fancier models on text. It earns its keep not by being right
+about the world — its independence assumption is a fiction and its confident
+probabilities are not to be trusted — but by being right about the *decision*
+often enough to matter. It is the baseline you should beat before you believe
+anything more complicated is helping.
+
+*Next: Chapter 17 — Feature engineering.* Every model in the book so far has
+taken its features as given. The next chapter asks where they come from — the
+unglamorous, decisive craft of turning raw data into the columns a model can
+actually use, where more problems are won and lost than in any choice of
+algorithm.
