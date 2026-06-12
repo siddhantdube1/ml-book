@@ -95,5 +95,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: 'weekly',
       priority: 0.8,
     },
+    {
+      url: `${base}/chapters/20-pca-dimensionality-reduction`,
+      lastModified: now,
+      changeFrequency: 'weekly',
+      priority: 0.8,
+    },
   ]
 }

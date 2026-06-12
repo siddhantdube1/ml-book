@@ -1,0 +1,582 @@
+import PrincipalAxes from '@/components/PrincipalAxes'
+import ProjectionReconstruction from '@/components/ProjectionReconstruction'
+import ScreePlot from '@/components/ScreePlot'
+import Embedding2D from '@/components/Embedding2D'
+import PyodideEditor from '@/components/PyodideEditor'
+
+export const metadata = {
+  title: 'PCA and dimensionality reduction',
+  description:
+    'Finding the few directions that carry the data’s real variation and throwing the rest away. Principal components, projection and reconstruction, the scree plot, and seeing high-dimensional data — with four interactive visualisations, runnable Python, and five problems.',
+  openGraph: {
+    title: 'PCA and dimensionality reduction',
+    description:
+      'An interactive walk-through of PCA — variance, principal components, projection and reconstruction, explained variance, and 2-D embeddings of high-dimensional data.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 20 · Part VI — Unsupervised learning
+</p>
+
+# PCA and dimensionality reduction
+
+*Not grouping the points, but reshaping the space they live in — finding the few
+directions that carry the data's real variation, and throwing the rest away.*
+
+Open a dataset with a thousand columns — every pixel of a small image, every gene
+in a tissue sample, every sensor on an engine — and you hit a wall immediately.
+You cannot plot it; a scatter needs two axes and you have a thousand. You can
+barely reason about distances in it, because in very high dimensions everything
+is roughly equidistant from everything else. And the models that lean on
+distance, from k-nearest neighbours to k-means, quietly fall apart. A thousand
+numbers per example sounds like a thousand independent facts, and the trouble is
+that it almost never is.
+
+Because those columns are not independent. Pixels next to each other take nearly
+the same value; genes switch on in concert; the engine's twenty sensors are all
+reading off the same few underlying states. The data sprawls across a
+thousand-dimensional box, but it does not fill it — it clusters near a thin,
+low-dimensional sheet folded inside, and almost all of those thousand directions
+are redundant or noise. The real information lives in a handful of directions, if
+only you knew which.
+
+Principal Component Analysis is how you find them. It rotates the data to a new
+set of axes aligned not to your arbitrary original columns but to the data
+itself — ordered so the first axis captures as much of the variation as any
+single direction can, the second as much of what remains, and so on — and then
+lets you keep the first few and discard the rest with almost no loss. It is the
+automatic, learned version of the feature engineering you did by hand in Chapter
+17, the standard way to compress data and to *see* it, and one of the most used
+ideas in all of machine learning. By the end you will know exactly what those
+axes are, where they come from, and how many of them you need.
+
+## 1. Too many dimensions
+
+The discomfort of high dimensions is worth naming precisely, because it is what
+PCA relieves. Three problems compound. You **cannot visualise** more than three
+dimensions, so any dataset wider than a few columns is invisible to you, and you
+lose the single most powerful debugging tool there is — your eyes. Distances
+**stop discriminating**: as dimensions grow, the nearest and farthest points
+from any query drift toward the same distance, so "nearest neighbour" and "this
+cluster" lose their meaning (the curse of dimensionality, met in earlier
+chapters). And everything is **expensive** — storage, computation, and the amount
+of data you need to fit a model all balloon with the number of features.
+
+The escape is the fact that high-dimensional data is almost never *truly*
+high-dimensional. Its features are correlated, so the points do not roam the
+whole space; they lie close to a lower-dimensional surface within it. A dataset
+of face photographs has tens of thousands of pixels, but faces vary along only a
+few dozen meaningful directions — pose, lighting, expression — and the rest of
+the pixel-space is empty. Find those few directions and you can replace a
+thousand numbers with a few dozen, losing almost nothing. The question is how to
+find them, and the answer begins with variance.
+
+## 2. Variance is information
+
+Here is the reframing the whole method turns on. Suppose you must throw away one
+direction — collapse the data along one axis and keep the rest. Which axis is
+safest to lose? The one along which the data **barely varies**. If every point
+has nearly the same value in some direction, that coordinate carries almost no
+information — knowing it tells you little about which point you are looking at, so
+discarding it costs little. Conversely, a direction along which the points
+spread *widely* is exactly where they differ from one another, which is to say
+where the information is.
+
+So "find the important directions" becomes a concrete, measurable goal: **find
+the directions of maximum variance**. Reducing dimensionality is then keeping the
+high-variance directions and dropping the low-variance ones. This is a modelling
+assumption — that variance equals information — and it is usually a good one, but
+not always; we will see in §10 where it misleads. For now, take it and run: the
+most important direction in the data is the one along which it varies the most.
+
+## 3. The first principal component
+
+Make it concrete in two dimensions, where you can see it. Take a tilted,
+elongated cloud of points and consider projecting them onto a line through the
+centre — replacing each point with its shadow on that line, a single number.
+Different lines preserve different amounts of the spread. Lay the line along the
+cloud's long axis and the shadows spread out almost as much as the points did;
+lay it across the short axis and they bunch together, their differences crushed.
+
+<PrincipalAxes />
+
+Rotate the line and watch the variance of the shadows swell and shrink. There is
+one direction where it is largest — the long axis of the cloud — and that
+direction is the **first principal component**, PC1: the single direction that
+captures more of the data's variance than any other. It is the best possible
+one-dimensional summary of the data, the line you would keep if you could keep
+only one.
+
+## 4. The rest of the components
+
+One direction is a line, and usually we want to keep more than that. The second
+principal component is found by the same maximise-variance rule, with one added
+constraint: it must be **orthogonal** to the first. Among all directions
+perpendicular to PC1, PC2 is the one of greatest remaining variance. PC3 is
+perpendicular to both PC1 and PC2 and captures the most of what is still left,
+and so on, each new component at right angles to all the previous ones and taking
+the largest share of the variance that remains.
+
+The result is a complete new set of axes — as many as the original dimensions —
+that are **orthogonal** (a genuine rotation of the space, no shearing) and
+**ordered** by how much variance each one captures. These are the principal
+components, and they are aligned to the data's own shape rather than to the
+arbitrary columns you happened to measure. Keeping the top few and dropping the
+tail is dimensionality reduction; the orthogonality is what makes the kept
+components non-redundant, and the ordering is what tells you which to keep.
+
+## 5. Projection and reconstruction
+
+Reducing a point to its top-$k$ components is **projection**: record only its
+coordinates along PC1 through PC$k$ and forget the rest. A two-dimensional point
+keeping one component becomes a single number — its position along the PC1 line.
+To undo it, **reconstruct**: place that number back on the PC1 line in the
+original space, which gives an approximation of where the point used to be.
+
+<ProjectionReconstruction />
+
+Keep one component and every point collapses onto the PC1 line; the orange stubs
+are the **reconstruction error**, each point's perpendicular distance from the
+line — exactly the part you threw away. Because PC1 is the maximum-variance
+direction, those residuals are as small as any single line could possibly make
+them. The variance you *kept* is $\lambda_1$ and the variance you *lost* is
+$\lambda_2$, the variance along the discarded direction — and that is the
+reconstruction error, no more and no less. Keep both components and the
+reconstruction is exact. Dimensionality reduction is lossy compression, and the
+loss is precisely the variance of the directions you dropped.
+
+## 6. The mathematics: covariance and eigenvectors
+
+Where do the components actually come from? Centre the data (subtract the mean of
+each feature) and form the **covariance matrix**
+
+$$C = \frac{1}{n} X^\top X,$$
+
+a $d \times d$ symmetric matrix whose entry $C_{ij}$ is how features $i$ and $j$
+vary together — the diagonal holds each feature's own variance, the off-diagonal
+their correlations. The variance of the data projected onto a unit direction $u$
+turns out to be exactly $u^\top C u$, so "find the direction of maximum variance"
+is "find the $u$ that maximises $u^\top C u$" — and the answer, from linear
+algebra, is the **top eigenvector** of $C$. The principal components *are* the
+eigenvectors of the covariance matrix, and each component's variance — its
+$\lambda$ — is the corresponding **eigenvalue**. Because $C$ is symmetric, its
+eigenvectors are automatically orthogonal, which is precisely the orthogonality
+of §4, free of charge.
+
+So all of PCA is one eigendecomposition of one symmetric matrix. In practice it
+is computed not from $C$ but from the **singular value decomposition** of the
+centred data matrix directly, which is more numerically stable and gives the same
+components — the singular values are the square roots of the eigenvalues. Either
+way, the recipe is: centre, decompose, sort by eigenvalue, keep the top few.
+
+## 7. How many components to keep?
+
+The eigenvalues answer this too, because each one *is* the variance its component
+captures. Divide a component's eigenvalue by the sum of all of them and you get
+its **explained-variance ratio** — the fraction of the data's total spread that
+component accounts for. List those ratios in descending order and plot them: the
+**scree plot**.
+
+<ScreePlot />
+
+The bars fall off a cliff. A few components carry almost all the variance, and
+the rest — the "scree", the rubble at the base of the cliff — carry almost none.
+The black curve accumulates them, and the standard rule is to keep enough
+components to reach a chosen threshold of cumulative variance, commonly 90% or
+95%. Here three of eight components clear 90%, so you could store these points
+with three numbers instead of eight and lose a tenth of the variance. The cliff's
+edge is the data telling you its true, intrinsic dimensionality, buried under the
+nominal one.
+
+## 8. Standardise first
+
+A trap that bites everyone once. PCA maximises variance, and variance has units —
+so a feature measured in millimetres has a thousand times the variance of the
+same feature in metres, and PCA, chasing variance, will point PC1 almost entirely
+along whichever feature happens to carry the biggest numbers, regardless of
+whether it carries the most *meaning*. A dataset mixing salaries in the tens of
+thousands with ages in the tens would find PC1 pointing essentially along salary,
+not because salary matters more but because its variance is numerically huge.
+
+The fix is the one from Chapter 17: **standardise each feature** to mean 0 and
+variance 1 before running PCA, unless the features are already in genuinely
+comparable units (like pixels of one image). Running PCA on standardised data is
+the same as running it on the **correlation** matrix instead of the covariance
+matrix, and it is the safe default whenever your features are measured on
+different scales. As ever with distance- and variance-based methods, scale is not
+a detail.
+
+## 9. Seeing high-dimensional data
+
+Now the payoff that makes PCA indispensable, and the reason it closes the
+unsupervised part of this book. Suppose your data has real structure — clusters,
+say — but the directions that separate those clusters are spread across many
+features, so no single pair of columns reveals them.
+
+<Embedding2D />
+
+Look at any two of the raw features and the three clusters smear into one
+indistinct blob — the structure is real but invisible, because it does not align
+with any original axis. Project the same points onto PC1 and PC2 and the clusters
+spring apart into a clear picture, because PCA has rotated the space to look down
+the directions of greatest variation, which here are exactly the directions that
+separate the groups. This is dimensionality reduction as a *microscope*: a
+hundred-dimensional dataset becomes a 2-D scatter you can actually read, and it
+is almost always the first thing to do with unfamiliar high-dimensional data —
+including, naturally, feeding the 2-D view straight into the clustering of
+Chapters 18–19.
+
+## 10. What PCA cannot do
+
+PCA earns its ubiquity, but its assumptions are real and worth knowing. It is
+**linear** — it can only rotate and project, so it captures structure that lies
+along straight directions and misses structure that curves. Data wound onto a
+spiral or a rolled-up sheet (the famous "Swiss roll") has a low intrinsic
+dimension that PCA cannot find, because unrolling it is not a rotation; this is
+why non-linear methods like **t-SNE** and **UMAP** exist, purpose-built for
+visualising curved manifolds. PCA's components are also **blends of every
+feature** — PC1 might be "0.3 × salary plus 0.5 × age minus 0.2 × height" — which
+makes them powerful but often hard to interpret. And it is **unsupervised**: it
+maximises variance, which is not always the direction that matters for a label —
+the biggest source of variation in face photos might be lighting, useless if you
+are trying to recognise identity.
+
+*Complexity* is modest: forming and decomposing the covariance matrix is about
+$O(\min(n d^2,\, d n^2))$, cheap for moderate dimensions, and randomised SVD
+handles the very large cases by computing only the top few components directly.
+
+## 11. Implementing it yourself
+
+PCA from scratch — centre, covariance, eigendecompose, sort, project — and the
+explained variance read straight off the eigenvalues.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def pca_fit(X, standardise=False):
+    mean = X.mean(0)
+    std = X.std(0) if standardise else np.ones(X.shape[1])
+    Z = (X - mean) / std                       # centre (and optionally scale)
+    C = (Z.T @ Z) / len(X)                      # covariance matrix
+    vals, vecs = np.linalg.eigh(C)             # symmetric eigendecomposition
+    order = np.argsort(vals)[::-1]             # sort by variance, descending
+    return mean, std, vecs[:, order].T, vals[order]   # components are the rows
+
+def project(X, mean, std, comps, k):
+    return ((X - mean) / std) @ comps[:k].T   # n x k scores
+
+# A tilted, elongated 2-D cloud — PC1 should land on its long axis.
+rng = np.random.default_rng(7)
+ang = 0.5
+Rot = np.array([[np.cos(ang), -np.sin(ang)], [np.sin(ang), np.cos(ang)]])
+X = np.column_stack([rng.normal(0, 2.5, 400), rng.normal(0, 0.7, 400)]) @ Rot.T
+
+mean, std, comps, vals = pca_fit(X)
+ratios = vals / vals.sum()
+print("PC1 direction:", comps[0].round(3))
+print("eigenvalues (variances):", vals.round(3))
+print("explained-variance ratio:", ratios.round(3))
+# the angle of PC1 (a line, so taken mod pi) matches the 0.5 tilt:
+print("PC1 angle:", round(np.arctan2(comps[0,1], comps[0,0]) % np.pi, 3))
+`}
+/>
+
+The eigenvector of the covariance matrix with the largest eigenvalue is PC1, and
+its eigenvalue is the variance along it. The sign of a component is arbitrary — an
+axis points both ways — so PC1 here may come out as either end of the long axis,
+which is why we compare its angle modulo $\pi$. Everything else in PCA is
+bookkeeping on top of this one decomposition.
+
+## 12. Problems
+
+### Problem 1 — Variance, axes, and limits
+
+A conceptual question. (a) Why does "directions of maximum variance" capture "the
+important directions" — what would it mean to discard a low-variance direction?
+(b) Why must the principal components be orthogonal, and why are they ordered? (c)
+Give one kind of structure PCA will fail to capture, and explain why
+standardising the features can change the result completely.
+
+<details>
+  <summary>Show solution</summary>
+
+**(a)** A direction of low variance is one along which all the points have nearly
+the same value, so that coordinate barely distinguishes one point from another —
+it carries little information, and discarding it loses little. A direction of high
+variance is where the points genuinely differ, so it is where the information
+lives. Keeping high-variance directions therefore keeps the most information per
+dimension retained.
+
+**(b)** Orthogonality ensures the components are non-redundant: each captures
+variation the others do not, so together they form a genuine rotation of the
+space rather than overlapping, repeated directions. The ordering — by eigenvalue,
+i.e. by variance captured — is what makes "keep the top k" meaningful: you keep
+the directions that matter most and drop the least.
+
+**(c)** PCA is linear, so it fails on data whose structure is curved — points
+along a spiral or a rolled-up sheet have a low intrinsic dimension that no
+rotation-and-projection can recover (you would have to *unroll* it). And because
+PCA chases variance, which scales with units, standardising changes which feature
+dominates: on un-standardised data a large-numbered feature can capture PC1 by
+sheer magnitude; standardising puts every feature on equal footing and can point
+the components somewhere entirely different.
+
+</details>
+
+### Problem 2 — PCA by hand on a 2-D cloud
+
+Centre a small correlated dataset, form its $2\times2$ covariance matrix, find the
+eigenvalues and eigenvectors, and confirm PC1 is the long axis.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(1)
+ang = 0.6
+Rot = np.array([[np.cos(ang), -np.sin(ang)], [np.sin(ang), np.cos(ang)]])
+X = np.column_stack([rng.normal(0, 3.0, 300), rng.normal(0, 0.8, 300)]) @ Rot.T
+
+# Your code:
+#   1. centre X (subtract the column means)
+#   2. form the 2x2 covariance matrix  C = Z.T @ Z / n
+#   3. eigendecompose with np.linalg.eigh; sort descending
+#   4. print the eigenvalues, the PC1 direction, and its explained-variance ratio
+#      (PC1's angle, mod pi, should be ~0.6)
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(1)
+ang = 0.6
+Rot = np.array([[np.cos(ang), -np.sin(ang)], [np.sin(ang), np.cos(ang)]])
+X = np.column_stack([rng.normal(0, 3.0, 300), rng.normal(0, 0.8, 300)]) @ Rot.T
+
+Z = X - X.mean(0)
+C = (Z.T @ Z) / len(X)
+vals, vecs = np.linalg.eigh(C)
+order = np.argsort(vals)[::-1]
+vals, vecs = vals[order], vecs[:, order]
+
+print("covariance matrix:\\n", C.round(2))
+print("eigenvalues:", vals.round(2))
+print("PC1 direction:", vecs[:, 0].round(3))
+print("PC1 angle (mod pi):", round(np.arctan2(vecs[1,0], vecs[0,0]) % np.pi, 3))
+print("explained by PC1:", round(vals[0] / vals.sum(), 3))
+`}
+/>
+
+The covariance matrix's off-diagonal entry is non-zero — the features are
+correlated, which is the tilt. Its top eigenvector points along the cloud's long
+axis (angle $\approx 0.6$), and the corresponding eigenvalue, over the sum, is the
+fraction of variance PC1 captures — which for such an elongated cloud is most of
+it.
+
+</details>
+
+### Problem 3 — Project and reconstruct
+
+Show that the reconstruction error from keeping $k$ components equals the sum of
+the *dropped* eigenvalues, and falls as $k$ grows.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+# 5-D data with variance concentrated in the first couple of directions
+sig = np.array([5.0, 3.0, 1.0, 0.5, 0.3])
+A = rng.normal(0, 1, (5, 5)); Q, _ = np.linalg.qr(A)        # random rotation
+X = (rng.normal(0, 1, (300, 5)) * sig) @ Q.T
+
+# Your code:
+#   1. pca_fit: centre, covariance, eigh, sort descending
+#   2. for k = 1..5, reconstruct from the top k components and measure the
+#      mean squared reconstruction error
+#   3. compare it to the sum of the dropped eigenvalues (they should match)
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+sig = np.array([5.0, 3.0, 1.0, 0.5, 0.3])
+A = rng.normal(0, 1, (5, 5)); Q, _ = np.linalg.qr(A)
+X = (rng.normal(0, 1, (300, 5)) * sig) @ Q.T
+
+mean = X.mean(0); Z = X - mean
+C = (Z.T @ Z) / len(X)
+vals, vecs = np.linalg.eigh(C)
+order = np.argsort(vals)[::-1]; vals = vals[order]; comps = vecs[:, order].T
+
+print(f"{'k':>2} {'recon MSE':>10} {'dropped eig':>12} {'cum var %':>10}")
+for k in range(1, 6):
+    scores = Z @ comps[:k].T
+    recon = scores @ comps[:k]               # back in centred space
+    mse = ((Z - recon) ** 2).sum(1).mean()
+    print(f"{k:>2} {mse:>10.3f} {vals[k:].sum():>12.3f} {vals[:k].sum()/vals.sum()*100:>9.1f}%")
+`}
+/>
+
+At every $k$ the mean squared reconstruction error matches the sum of the
+eigenvalues you dropped — because the error is exactly the variance living in the
+discarded directions. It drops steeply at first (the big eigenvalues) and then
+barely moves (the scree), which is the quantitative form of the cliff in the
+scree plot.
+
+</details>
+
+### Problem 4 — Choosing k by explained variance
+
+On higher-dimensional data, compute the explained-variance ratios, accumulate
+them, and find the smallest number of components reaching 90%.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(4)
+# 10-D data, variance decaying geometrically across a random basis
+sig = 4.0 * 0.62 ** np.arange(10)
+A = rng.normal(0, 1, (10, 10)); Q, _ = np.linalg.qr(A)
+X = (rng.normal(0, 1, (400, 10)) * sig) @ Q.T
+
+# Your code:
+#   1. eigenvalues of the covariance matrix, sorted descending
+#   2. explained-variance ratios and their cumulative sum
+#   3. the smallest k whose cumulative ratio >= 0.90
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(4)
+sig = 4.0 * 0.62 ** np.arange(10)
+A = rng.normal(0, 1, (10, 10)); Q, _ = np.linalg.qr(A)
+X = (rng.normal(0, 1, (400, 10)) * sig) @ Q.T
+
+Z = X - X.mean(0)
+vals = np.sort(np.linalg.eigvalsh((Z.T @ Z) / len(X)))[::-1]
+ratios = vals / vals.sum()
+cum = np.cumsum(ratios)
+print("ratios:    ", ratios.round(3))
+print("cumulative:", cum.round(3))
+print("smallest k for >= 90% variance:", int(np.argmax(cum >= 0.90) + 1), "of 10")
+`}
+/>
+
+The variance is concentrated in the first few components, so the cumulative curve
+shoots up and crosses 90% well before the tenth component — you keep those and
+discard the rest. This is exactly the calculation behind the scree-plot widget,
+and the everyday way the number of components is chosen in practice.
+
+</details>
+
+### Problem 5 — PCA for visualisation
+
+The capstone, tying the unsupervised part together. Generate clusters hidden in
+high-dimensional space, show they overlap in raw features, and watch PCA pull them
+apart in 2-D.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def high_d_clusters(n, d, k, seed):
+    rng = np.random.default_rng(seed)
+    u = np.cos(0.4 + np.arange(d) * 2.3)
+    w = np.cos(1.9 + np.arange(d) * 2.3)
+    cen = [np.cos(2*np.pi*c/k) * 6 * u + np.sin(2*np.pi*c/k) * 6 * w for c in range(k)]
+    X = np.array([cen[i % k] + rng.normal(0, 2.6, d) for i in range(n)])
+    y = np.array([i % k for i in range(n)])
+    return X, y
+
+X, y = high_d_clusters(300, 8, 3, 3)
+
+# Provided: a between/within separation ratio (higher = better separated).
+def separation(C, y):
+    gm = C.mean(0); k = y.max() + 1
+    between = sum(((C[y==c].mean(0) - gm) ** 2).sum() * (y==c).sum() for c in range(k))
+    within = sum(((C[i] - C[y==y[i]].mean(0)) ** 2).sum() for i in range(len(C)))
+    return between / within
+
+# Your code:
+#   1. standardise X, run PCA, project to the top 2 components
+#   2. compare separation(projection, y) to separation(raw two columns, y)
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def high_d_clusters(n, d, k, seed):
+    rng = np.random.default_rng(seed)
+    u = np.cos(0.4 + np.arange(d) * 2.3); w = np.cos(1.9 + np.arange(d) * 2.3)
+    cen = [np.cos(2*np.pi*c/k) * 6 * u + np.sin(2*np.pi*c/k) * 6 * w for c in range(k)]
+    X = np.array([cen[i % k] + rng.normal(0, 2.6, d) for i in range(n)])
+    y = np.array([i % k for i in range(n)])
+    return X, y
+
+def separation(C, y):
+    gm = C.mean(0); k = y.max() + 1
+    between = sum(((C[y==c].mean(0) - gm) ** 2).sum() * (y==c).sum() for c in range(k))
+    within = sum(((C[i] - C[y==y[i]].mean(0)) ** 2).sum() for i in range(len(C)))
+    return between / within
+
+X, y = high_d_clusters(300, 8, 3, 3)
+Z = (X - X.mean(0)) / X.std(0)
+vals, vecs = np.linalg.eigh((Z.T @ Z) / len(Z))
+comps = vecs[:, np.argsort(vals)[::-1]].T
+proj = Z @ comps[:2].T
+
+print("separation in PC1xPC2:     ", round(separation(proj, y), 2))
+print("separation in raw x1,x2:   ", round(separation(X[:, :2], y), 2))
+print("separation in raw x3,x4:   ", round(separation(X[:, 2:4], y), 2))
+`}
+/>
+
+The clusters are several times better separated in the two principal components
+than in any pair of raw features, because PCA found the directions along which the
+groups actually differ — directions that no original axis happens to point along.
+This is why PCA and clustering are so often used together: reduce to 2-D to see
+the structure, then cluster what you can finally see.
+
+</details>
+
+---
+
+Principal Component Analysis is the quiet workhorse of unsupervised learning: one
+eigendecomposition, and a thousand tangled columns become a handful of ordered,
+independent directions you can plot, store, and compute on. It compresses, it
+denoises, it decorrelates, and above all it lets you *see* — turning structure
+that was buried in a hundred dimensions into a picture on a page. Its limits are
+equally clear: it is linear, it is unsupervised, and its axes are blends of
+everything, so when the structure curves or the labels matter you reach for other
+tools. But as a first look at almost any high-dimensional dataset, nothing beats
+it.
+
+It also closes the classical arc of this book. You can now take raw data, shape
+its features, fit and tune supervised models across a wide repertoire, cluster
+without labels, and reduce dimensions to see and compress. Every one of those
+methods, though, drew its boundaries and axes from formulas you could write down
+in closed form or a single greedy loop. The last part asks what happens when a
+model is allowed to *learn its own features*, layer upon layer, with nothing but
+gradient descent and a great deal of data.
+
+*Next: Chapter 21 — The perceptron and multilayer perceptrons.* Part VII begins:
+from a single artificial neuron to a network of them, and the moment machine
+learning starts discovering representations no one designed.
