@@ -1,0 +1,432 @@
+import KNNVote from '@/components/KNNVote'
+import KNNScaling from '@/components/KNNScaling'
+import KNNBoundary from '@/components/KNNBoundary'
+import PyodideEditor from '@/components/PyodideEditor'
+
+export const metadata = {
+  title: 'Your first model: k-nearest neighbours',
+  description:
+    'The simplest model there is — to predict, look at the most similar examples you have already seen. Decision boundaries, the role of k and the bias–variance trade-off, scaling, and the curse of dimensionality, with three interactive visualisations, runnable Python, and five problems.',
+  openGraph: {
+    title: 'Your first model: k-nearest neighbours',
+    description:
+      'An interactive introduction to k-nearest neighbours — voting by similarity, decision boundaries, the role of k, and the curse of dimensionality.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 4 · Part I — Foundations
+</p>
+
+# Your first model: k-nearest neighbours
+
+*The simplest model in the book, and the only one with no equation: to predict
+something about a new point, just look at the most similar points you have already
+seen.*
+
+You already use this algorithm, constantly, without naming it. Wondering whether you
+will like a restaurant, you think of the most similar restaurants you have been to
+and how those went. Guessing a stranger's profession, you compare them to people you
+know who dress and talk the same way. Estimating a house's price, an agent looks at
+what similar houses nearby recently sold for. The reasoning is the same every time:
+*find the most similar past cases and let them vote.* That is **k-nearest
+neighbours** — kNN — and it is the gentlest possible introduction to what a model is,
+because it requires no formula, no fitting, and no calculus. It just remembers the
+examples and consults them.
+
+Despite its simplicity, kNN is a real, useful model, and it teaches in miniature
+every big idea the rest of the book elaborates: a **decision boundary**, the
+**bias–variance trade-off**, why **scaling** matters, and the **curse of
+dimensionality** that haunts every method working with many features. Meet them here,
+on a model you can fully understand in a sentence, and they will be old friends when
+they return in more complicated company.
+
+## 1. Prediction by analogy
+
+Here is the whole idea, stated once. You have a collection of past examples, each
+labelled with the answer you care about — emails marked spam or not, houses with
+their sale prices, patients with their diagnoses. A new case arrives, unlabelled. To
+predict its label, you find the example most similar to it (its *nearest neighbour*)
+and copy that example's label. For robustness you look at not one but the $k$ nearest,
+and take a majority vote (for classification) or an average (for regression).
+
+There is no model to train in the usual sense — no parameters to fit, no loss to
+minimise. The "model" *is* the dataset: kNN simply stores all the examples and, at
+prediction time, searches them for the closest ones. This makes it almost trivially
+easy to understand, and, as we will see, quietly expensive to use. But first, the
+algorithm in action.
+
+## 2. The algorithm: find the k nearest, take a vote
+
+That is genuinely the entire algorithm, and it is easier shown than described.
+
+<KNNVote />
+
+To classify the diamond, kNN measures its distance to every labelled point, keeps
+the $k$ closest, and takes their majority vote — the diamond is coloured by the
+winner. Drag it around and watch the prediction flip the instant the local majority
+flips. Raise $k$ and the decision is based on a wider circle of neighbours, so it
+changes less abruptly. Notice what is *not* happening: there is no training step, no
+equation being solved. The prediction is computed fresh, by looking, every single
+time. This is "learning" in its most literal form — remember everything, and reason
+by analogy when asked.
+
+## 3. Distance, and why scale matters
+
+"Nearest" needs a definition of distance, and the usual one is plain straight-line
+(Euclidean) distance: $\sqrt{(x_1 - x_1')^2 + (x_2 - x_2')^2 + \dots}$, the dot
+product's cousin from Chapter 3. But that formula hides a trap.
+
+<KNNScaling />
+
+If one feature is measured in thousands and another in fractions, the large-numbered
+feature *dominates the distance* entirely — not because it matters more, but because
+its numbers are bigger. The class here depends on both features equally, yet in raw
+units kNN's boundary comes out nearly vertical, blind to the small-scale feature.
+**Standardising** — rescaling every feature to a common spread, mean 0 and standard
+deviation 1 — puts them on equal footing and the boundary corrects itself. Any model
+built on distances is at the mercy of the units you happened to record, so for kNN
+(and k-means, and much else) you almost always standardise first. Chapter 17 turns
+this into a discipline; here, just remember: kNN measures distance, and distance has
+units.
+
+## 4. The decision boundary, and the role of k
+
+Sweep $k$ across its whole range and the model's character transforms.
+
+<KNNBoundary />
+
+The shaded region is the **decision boundary** — the dividing line kNN draws between
+the classes, the set of points where the vote is tied. With $k = 1$ the boundary is
+wild and jagged: every training point, including the mislabelled and the unlucky, gets
+its own little territory, so the model bends around every quirk of the data. This is
+**high variance** — overfitting — the same failure as the wiggly curve of Chapter 2,
+now in two dimensions. As $k$ grows, each prediction averages over more neighbours,
+the territories merge, and the boundary smooths. Push $k$ too high and it
+over-smooths, blurring across the genuine gap between the classes — **high bias**,
+underfitting. The bias–variance trade-off of Chapter 2 is not an abstraction here; it
+is a slider you can drag, and $k$ is the dial.
+
+## 5. Choosing k
+
+So what $k$ should you use? Exactly the answer Chapter 2 gave: not the one with the
+lowest *training* error (that is always $k = 1$, which memorises perfectly and
+generalises terribly), but the one with the lowest *held-out* error. Split off a
+validation set, try a range of $k$ values, measure each on the held-out data, and
+keep the best — typically a small odd number (odd, to avoid tied votes in two-class
+problems). The validation error traces a U in $k$ just as it did in polynomial degree:
+too small overfits, too large underfits, and the bottom is the $k$ that generalises.
+The recipe is the workflow of Chapter 2, applied to the first model that needs it.
+
+## 6. kNN for regression
+
+kNN is not only a classifier. To predict a *number* rather than a category — a house
+price, a temperature — change the vote to an **average**: find the $k$ nearest
+neighbours and return the mean of their values. Want to know what a house should sell
+for? Average the recent sale prices of the $k$ most similar houses. The same
+remember-and-consult logic, with "majority vote" swapped for "average", turns kNN into
+a regression model. Most classifiers in this book have a regression twin like this,
+and kNN's is the most transparent of all.
+
+## 7. A lazy learner
+
+kNN has a peculiar cost structure that foreshadows why cleverer models exist.
+Training is instantaneous — there is nothing to do but store the data. But
+*prediction* is expensive: to classify one new point, kNN must compute its distance
+to **every** stored example and find the closest, every single time. With a million
+training points, every prediction is a million distance calculations. This is why kNN
+is called a **lazy learner**: it defers all the work to prediction time, doing no
+upfront summarising of the data into a compact model.
+
+Contrast this with almost everything else in the book — linear regression, a decision
+tree, a neural network — which are **eager** learners: they pay a one-time training
+cost to distil the data into a small set of parameters, after which prediction is
+cheap and the training data can be thrown away. kNN keeps the whole dataset forever
+and recomputes from scratch each time. For small datasets this is fine and its
+simplicity is a virtue; for large ones, the laziness becomes a liability, and the
+eager models earn their keep.
+
+## 8. The curse of dimensionality
+
+kNN has one more weakness, and it is profound enough to have its own ominous name. The
+whole method rests on "nearby points are similar" — but in **high dimensions, nothing
+is nearby.** As the number of features grows, the volume of the space explodes,
+points spread impossibly thin, and a strange thing happens: the distance to your
+nearest neighbour and the distance to your farthest neighbour become almost the same.
+"Nearest" stops meaning anything, because everything is roughly equidistant from
+everything else.
+
+This is the **curse of dimensionality**, and it cripples kNN (and every
+distance-based method) when there are many features — dozens, hundreds, thousands.
+With a handful of features kNN is excellent; with a thousand it is hopeless, because
+the notion of a meaningful neighbour has evaporated. It is a major reason the field
+develops models that do not lean so heavily on raw distance, and a major reason for
+the dimensionality reduction of Chapter 20 — which fights the curse by squeezing many
+features down to the few that matter.
+
+## 9. When to reach for kNN
+
+A fair summary. kNN is a fine choice when you have **few features**, **enough data**
+to populate the space, **no need to explain** the prediction beyond "these similar
+cases", and a dataset small enough that the per-prediction cost is acceptable. It is a
+poor choice when features are many (the curse), when predictions must be fast on a
+huge dataset (the laziness), or when the features are on wildly different scales and
+unscaled (the distance trap). As a *baseline* it is invaluable: simple, assumption-free,
+and a yardstick any fancier model should have to beat. Often it is the first thing to
+try and the thing to improve upon — which is exactly why it opens the book's tour of
+models.
+
+## 10. Implementing it yourself
+
+kNN from scratch is short, because there is so little to it: measure distances, take
+the nearest, vote.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def make_blobs(n, seed):
+    rng = np.random.default_rng(seed)
+    y = np.arange(n) % 2
+    cx = np.where(y == 0, -1.5, 1.5)
+    X = np.stack([rng.normal(cx, 0.7), rng.normal(0, 0.7)], axis=1)
+    return X, y
+
+Xtr, ytr = make_blobs(120, 1)
+Xte, yte = make_blobs(120, 2)
+
+def knn_predict(Xtr, ytr, x, k):
+    dists = np.sqrt(((Xtr - x) ** 2).sum(axis=1))   # distance to every example
+    nearest = np.argsort(dists)[:k]                 # the k closest
+    return int(ytr[nearest].mean() >= 0.5)          # majority vote
+
+for k in [1, 5, 15]:
+    acc = np.mean([knn_predict(Xtr, ytr, x, k) == y for x, y in zip(Xte, yte)])
+    print(f"k = {k:>2}: test accuracy {acc:.3f}")
+`}
+/>
+
+There is no training loop at all — `knn_predict` does everything at prediction time,
+computing distances to all the stored points and voting. That is both the charm of
+kNN and its cost: the simplest model imaginable, paid for one prediction at a time.
+
+## 11. Problems
+
+### Problem 1 — Understanding kNN
+
+A conceptual question. (a) Why does kNN have no training step, and what is the "model"
+it uses to predict? (b) Why does $k = 1$ achieve perfect accuracy on the training data
+yet often generalise poorly? (c) Why must features usually be standardised before
+running kNN? (d) Why does kNN break down when there are very many features?
+
+<details>
+  <summary>Show solution</summary>
+
+**(a)** kNN does no upfront fitting — it simply stores the labelled examples. The
+"model" *is* the stored dataset; prediction searches it for the nearest neighbours
+and votes. There are no parameters to learn.
+
+**(b)** Each training point is its own nearest neighbour (distance zero), so $k = 1$
+labels every training point as itself — perfect training accuracy. But the resulting
+boundary bends around every point, including noise and mislabels (high variance), so
+it captures the quirks of the training sample rather than the underlying pattern and
+does poorly on new data.
+
+**(c)** kNN ranks points by distance, and an unstandardised feature with large numeric
+range dominates the distance regardless of its true importance — so the model
+effectively ignores the small-scale features. Standardising puts all features on a
+common spread so each contributes fairly to "nearness".
+
+**(d)** The curse of dimensionality: as features multiply, points spread thin and the
+nearest and farthest neighbours become nearly equidistant, so "nearest" loses meaning.
+kNN, which depends entirely on meaningful nearness, then fails.
+
+</details>
+
+### Problem 2 — Distance and nearest neighbours
+
+Implement Euclidean distance and find a query's nearest neighbours.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+X = np.array([[0, 0], [1, 1], [2, 0], [3, 3], [0, 2.0]])
+y = np.array([0, 0, 1, 1, 0])
+query = np.array([1.5, 0.5])
+
+# Your code:
+#   1. compute the Euclidean distance from the query point to each row of X
+#   2. print the indices of the 3 nearest, sorted by distance
+#   3. predict the query's class by majority vote of those 3
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+X = np.array([[0, 0], [1, 1], [2, 0], [3, 3], [0, 2.0]])
+y = np.array([0, 0, 1, 1, 0])
+query = np.array([1.5, 0.5])
+
+dists = np.sqrt(((X - query) ** 2).sum(axis=1))
+order = np.argsort(dists)
+print("distances:", dists.round(2))
+print("3 nearest indices:", order[:3])
+print("their labels:", y[order[:3]], "-> vote:", int(y[order[:3]].mean() >= 0.5))
+`}
+/>
+
+The two nearest points (indices 1 and 2) are class 0 and class 1; the third breaks the
+tie. Euclidean distance is just the square root of the summed squared differences — the
+same geometry as the dot product of Chapter 3 — and the prediction is a majority over
+the closest few. That is all kNN ever does.
+
+</details>
+
+### Problem 3 — Choose k by held-out error
+
+Sweep $k$ and find the value that generalises best — the bottom of the kNN U.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def make_moons(n, seed):
+    rng = np.random.default_rng(seed); h = n // 2; t = np.linspace(0, np.pi, h)
+    a = np.c_[np.cos(t) - 0.5, np.sin(t) - 0.25] + rng.normal(0, 0.2, (h, 2))
+    b = np.c_[0.5 - np.cos(t), 0.25 - np.sin(t)] + rng.normal(0, 0.2, (h, 2))
+    return np.r_[a, b], np.r_[np.zeros(h), np.ones(h)]
+
+Xtr, ytr = make_moons(200, 1)
+Xval, yval = make_moons(200, 2)
+
+def knn(Xtr, ytr, x, k):
+    d = ((Xtr - x) ** 2).sum(1)
+    return int(ytr[np.argsort(d)[:k]].mean() >= 0.5)
+
+# Your code: for k in [1, 5, 15, 51, 101], report validation accuracy and pick the best.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def make_moons(n, seed):
+    rng = np.random.default_rng(seed); h = n // 2; t = np.linspace(0, np.pi, h)
+    a = np.c_[np.cos(t) - 0.5, np.sin(t) - 0.25] + rng.normal(0, 0.2, (h, 2))
+    b = np.c_[0.5 - np.cos(t), 0.25 - np.sin(t)] + rng.normal(0, 0.2, (h, 2))
+    return np.r_[a, b], np.r_[np.zeros(h), np.ones(h)]
+
+Xtr, ytr = make_moons(200, 1); Xval, yval = make_moons(200, 2)
+def knn(Xtr, ytr, x, k):
+    return int(ytr[np.argsort(((Xtr - x) ** 2).sum(1))[:k]].mean() >= 0.5)
+
+best_k, best_acc = None, 0
+for k in [1, 5, 15, 51, 101]:
+    acc = np.mean([knn(Xtr, ytr, x, k) == yv for x, yv in zip(Xval, yval)])
+    print(f"k = {k:>3}: validation accuracy {acc:.3f}")
+    if acc > best_acc: best_acc, best_k = acc, k
+print("best k:", best_k)
+`}
+/>
+
+Accuracy rises from $k=1$ (jagged, overfit) to a peak at a small-but-not-tiny $k$, then
+falls as $k$ grows too large and over-smooths — the bias–variance U, now in $k$. The
+best $k$ is chosen on the held-out set, never on the training set, exactly as Chapter 2
+demands.
+
+</details>
+
+### Problem 4 — kNN for regression
+
+Swap the vote for an average and predict a number.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+X = np.sort(rng.uniform(0, 10, 60))[:, None]
+y = np.sin(X.ravel()) + rng.normal(0, 0.15, 60)
+query = np.array([[5.0]])
+
+# Your code:
+#   1. find the 5 nearest training x-values to the query
+#   2. predict the query's y as the MEAN of their y-values (regression, not voting)
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+X = np.sort(rng.uniform(0, 10, 60))[:, None]
+y = np.sin(X.ravel()) + rng.normal(0, 0.15, 60)
+query = np.array([[5.0]])
+
+d = np.sqrt(((X - query) ** 2).sum(1))
+nearest = np.argsort(d)[:5]
+pred = y[nearest].mean()
+print("5 nearest x:", X[nearest].ravel().round(2))
+print("kNN regression prediction at x=5:", round(pred, 3), " (true sin(5) =", round(np.sin(5), 3), ")")
+`}
+/>
+
+For regression, the only change is averaging the neighbours' values instead of voting
+on their labels. The prediction at $x = 5$ lands near $\sin(5)$, recovered purely from
+the nearby noisy points. Larger $k$ would smooth the prediction more (and blur sharp
+features); the bias–variance trade-off is identical to the classification case.
+
+</details>
+
+### Problem 5 — The curse of dimensionality
+
+See the curse for yourself: as dimensions grow, near and far become the same.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+
+# Your code: for D in [2, 10, 100, 1000], scatter 500 random points in D dimensions,
+# pick a query, and print the ratio (nearest distance) / (farthest distance).
+# Watch the ratio climb toward 1 — everything becomes equidistant.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+for D in [2, 10, 100, 1000]:
+    pts = rng.normal(0, 1, (500, D))
+    q = rng.normal(0, 1, D)
+    d = np.sqrt(((pts - q) ** 2).sum(axis=1))
+    print(f"D = {D:>4}: nearest/farthest distance ratio = {d.min() / d.max():.2f}")
+`}
+/>
+
+In 2 dimensions the nearest point is far closer than the farthest — "nearby" is
+meaningful. By 1000 dimensions the ratio is close to 1: the nearest and farthest points
+are almost the same distance away, so "nearest neighbour" carries no information.
+This is the curse, and it is why kNN — and any method that trusts raw distance — needs
+few features, and why reducing dimensions (Chapter 20) matters so much.
+
+</details>
+
+---
+
+*Next: Chapter 5 — Linear regression.* From a model that stores every example to a
+model that distils them into a handful of numbers: the line of best fit, the loss that
+defines "best", and the closed-form formula that solves it — the doorway to the rest of
+the book.
