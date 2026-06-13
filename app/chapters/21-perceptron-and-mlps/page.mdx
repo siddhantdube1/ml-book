@@ -1,0 +1,614 @@
+import SingleNeuron from '@/components/SingleNeuron'
+import PerceptronLearning from '@/components/PerceptronLearning'
+import ActivationZoo from '@/components/ActivationZoo'
+import MLPBoundary from '@/components/MLPBoundary'
+import HiddenSpace from '@/components/HiddenSpace'
+import PyodideEditor from '@/components/PyodideEditor'
+
+export const metadata = {
+  title: 'The perceptron and multilayer perceptrons',
+  description:
+    'From a single artificial neuron to a network of them — and the moment machine learning starts building its own features. The perceptron, the XOR wall, hidden layers, activations, and learned representations, with five interactive visualisations, runnable Python, and five problems.',
+  openGraph: {
+    title: 'The perceptron and multilayer perceptrons',
+    description:
+      'An interactive walk-through of neural networks — the perceptron, XOR, hidden layers, activation functions, and how a network learns its own representation.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 21 · Part VII — Neural networks
+</p>
+
+# The perceptron and multilayer perceptrons
+
+*From a single artificial neuron to a network of them — and the moment a model
+stops fitting the features you give it and starts building its own.*
+
+Every model in this book so far has had its cleverness handed to it. Linear and
+logistic regression draw a line because you told them the features; the support
+vector machine bends that line only through a kernel you chose; the decision tree
+splits on columns you supplied; even principal components are just a rotation of
+the axes you already had. When the data needed a curve, it was *you* who built
+the curve — the squared term, the interaction, the kernel, the polynomial. The
+model only ever fit weights to features a human designed.
+
+The artificial neuron is where that changes. It begins almost insultingly
+simple — a caricature of a brain cell that multiplies each of its inputs by a
+weight, adds them up, and fires if the total crosses a threshold — and on its own
+it is nothing you have not seen: a single neuron is a straight line, the logistic
+regression of Chapter 7 wearing biological clothes. The magic is not in the
+neuron. It is in what happens when you stack them. Wire the outputs of one layer
+of neurons into the inputs of another, put a simple non-linearity between them,
+and the network stops merely fitting features and starts *building* them —
+manufacturing, on its own, exactly the curved coordinates that you used to have
+to hand-craft.
+
+That is the whole idea of deep learning, in one sentence, and this chapter is
+where it begins. You will watch a single perceptron learn a line and then thrash
+helplessly against the XOR problem that no line can solve; you will stack a
+handful of neurons into a hidden layer and watch the same problem fall; and you
+will see, in the hidden layer's own coordinates, the network quietly reshaping
+the data until a straight line is all the answer needs. How it learns those
+weights — the chain rule turned into an algorithm — is the next chapter. This one
+is about what it can build.
+
+## 1. A neuron
+
+The whole edifice rests on one tiny unit, borrowed loosely from biology. A real
+neuron collects electrical signals from thousands of others through its
+dendrites, sums them, and fires a pulse down its axon only if the total exceeds
+some threshold. Strip that to arithmetic and you have the **artificial neuron**:
+take the inputs $x_1, \dots, x_d$, multiply each by a **weight** $w_i$ (how much
+that input matters, and in which direction), add a **bias** $b$ (the threshold,
+moved to the other side), and pass the weighted sum through an **activation
+function** $\phi$:
+
+$$\text{output} = \phi\!\left(\sum_i w_i x_i + b\right) = \phi(w \cdot x + b).$$
+
+That is the entire unit. The weights and bias are what the neuron *learns*; the
+activation is a fixed non-linearity we choose. Everything in this chapter — and,
+scaled up a billionfold, everything in modern AI — is made of this one part,
+wired together. So it is worth meeting it alone first.
+
+## 2. The perceptron
+
+The earliest and simplest neuron, Rosenblatt's 1958 **perceptron**, uses the
+bluntest possible activation: a **step**. Compute $z = w \cdot x + b$, and fire 1
+if $z \ge 0$, else 0. Geometrically the equation $w \cdot x + b = 0$ is a line
+(in 2-D) or a hyperplane (in general), with the weights $w$ as its normal
+direction; everything on one side outputs 1 and everything on the other outputs
+0. A single perceptron is therefore exactly a **linear classifier**.
+
+<SingleNeuron />
+
+Drag the weights and the boundary tilts; drag the bias and it slides. Switch the
+activation from the hard `step` to the smooth `sigmoid` and the crisp edge melts
+into a gradient — and at that moment the neuron becomes something you already
+know intimately. A single sigmoid neuron computes $\sigma(w \cdot x + b)$, which
+is precisely the **logistic regression** of Chapter 7. The neuron is not a new
+model; it is the old one, renamed as a building block and waiting to be stacked.
+
+## 3. The perceptron learning rule
+
+How does a perceptron find its line? With the first genuine *learning* algorithm
+in the book, and a beautifully simple one. Show the perceptron a training point.
+If it classifies the point correctly, change nothing. If it gets it wrong, nudge
+the weights a little in the direction that would have helped:
+
+$$w \leftarrow w + \eta\,(y - \hat{y})\,x, \qquad b \leftarrow b + \eta\,(y - \hat{y}),$$
+
+where $\hat{y}$ is the perceptron's guess, $y$ the truth, and $\eta$ a small step
+size. If the truth was 1 and it guessed 0, the weights shift toward the point; if
+the other way, away from it. Cycle through the data, fixing mistakes, until there
+are none left.
+
+<PerceptronLearning />
+
+On linearly separable data this is guaranteed to work: the **perceptron
+convergence theorem** proves that if a separating line exists, the rule will find
+one in a finite number of steps — watch the boundary rotate into place and stop.
+The guarantee is real, and for a while it made the perceptron look like the key
+to artificial thought. Then someone asked it to learn XOR.
+
+## 4. The wall: XOR
+
+Switch the widget above to **XOR** and watch the algorithm come apart. The line
+lurches back and forth, fixing one point only to break another, and never
+settles — because there is nothing to settle on. XOR is the checkerboard pattern
+of Chapter 17: class 1 in two opposite corners, class 0 in the other two, and
+*no straight line separates them*. A single perceptron can only ever draw a
+straight boundary, so it cannot represent XOR, and the convergence theorem simply
+does not apply — there is no separating line for it to find.
+
+This is not a quirk of one toy problem. It is the fundamental limit of a single
+neuron, and when Minsky and Papert laid it out in 1969 it was devastating: if a
+perceptron cannot learn something as trivial as XOR, what hope for anything real?
+Funding dried up, and the field went quiet for over a decade — the first "AI
+winter". The irony is that the escape was already in plain sight, and almost
+embarrassingly simple. You just need more than one neuron.
+
+## 5. Stacking neurons: the multilayer perceptron
+
+Here is the fix. Instead of one neuron mapping inputs straight to an output, put a
+**hidden layer** of several neurons in between. Each hidden neuron takes the same
+inputs but with its own weights, so each draws its own line and computes its own
+0-to-1 signal. Then a final **output neuron** takes *those* signals as *its*
+inputs and combines them into the answer. Inputs feed the hidden layer; the
+hidden layer feeds the output. That is a **multilayer perceptron** (MLP), the
+simplest neural network.
+
+The point is what the hidden layer does. Its neurons are not classifying the
+data; they are manufacturing new **features** — each one a learned, intermediate
+question about the input ("is the point up and to the right?"). The output neuron
+then draws a straight boundary not in the raw input space, where no line works,
+but in the space of those new features, where one does. For XOR you need only two
+hidden neurons: one fires for the top-right region, one for the bottom-left, and
+the output combines them. Stacking has turned an impossible problem into a linear
+one — but only because of a detail we have glossed over: the activation in
+between.
+
+## 6. Why non-linearity is the whole point
+
+It is tempting to think the power comes from stacking, but stacking alone buys
+nothing. Suppose the activation were the identity — just pass the weighted sum
+through unchanged. Then each layer applies a linear transformation, and a linear
+transformation of a linear transformation is *still linear*: the whole deep
+network collapses into a single equivalent linear layer, no more expressive than
+one neuron. A thousand stacked linear layers still draw only a straight line.
+
+<ActivationZoo />
+
+The **activation function** is the non-linear bend between the layers that
+prevents the collapse, and it is what lets depth build complexity. The classic
+choices saturate — the **sigmoid** ($0$ to $1$) and **tanh** ($-1$ to $1$)
+flatten out at their extremes — and that flattening, as the dashed derivatives
+show, is a problem we will meet in Chapter 22: where the curve is flat the
+gradient is nearly zero and learning crawls. The modern default, **ReLU**
+($\max(0, z)$), and its **leaky** variant fix this with a simple hinge that stays
+steep, which is why nearly every deep network today is built from them. The
+bottom panel makes the stakes concrete: the same six-unit network draws a useless
+straight line with a linear activation and bends to solve XOR the moment you give
+it ReLU.
+
+## 7. Forward propagation
+
+With the pieces named, the computation a network performs is just a chain of the
+same three operations, layer by layer. Collect a layer's weights into a matrix
+$W^{(l)}$ and its biases into a vector $b^{(l)}$; then the layer's output is
+
+$$a^{(l)} = \phi\!\left(W^{(l)} a^{(l-1)} + b^{(l)}\right),$$
+
+a **matrix multiply** (every neuron's weighted sum at once), an **added bias**,
+and an **activation**, applied to the previous layer's output. Start with the
+input $a^{(0)} = x$, apply this for each layer in turn, and the final layer emits
+the prediction. That is **forward propagation** — literally all a trained network
+does to turn an input into an output. A modern network with billions of
+parameters is doing exactly this, just with very large matrices and very many
+layers. The only remaining mystery is where the numbers in $W$ and $b$ come from,
+and that is Chapter 22.
+
+## 8. Solving XOR, and any shape
+
+Let it run. Below, a small MLP trains live — press Play and watch the decision
+boundary form out of nothing as the weights adjust.
+
+<MLPBoundary />
+
+With a single hidden unit the network can only draw a straight line and XOR stays
+broken; raise the hidden-unit count and the boundary springs to life, wrapping
+itself around the checkerboard, the moons, the rings. Each faint grey line is one
+hidden neuron's own boundary, and the output neuron blends them — every added
+unit contributes another fold the boundary can use. This is the kernel trick of
+Chapter 15 and the basis expansion of Chapter 17 made flesh: the network is
+lifting the data into a richer space where a straight cut works. The difference,
+and it is the difference that defines deep learning, is that *no one designed the
+lift*. The network found it.
+
+## 9. Hidden layers learn features
+
+That last point deserves to be seen directly, because it is the conceptual heart
+of the entire field. A hidden layer is a **learned change of representation**.
+
+<HiddenSpace />
+
+On the left is XOR in its raw input coordinates, hopelessly tangled — no line
+separates the classes. The network has just two hidden units; on the right, each
+point is re-plotted in *their* coordinates $(h_1, h_2)$ — what the hidden layer
+sees instead of the raw input. Press Play, and as the network trains it warps
+that hidden space, stretching and folding until the two classes pull cleanly
+apart and a single straight line, the output neuron, slices between them. The
+network has *learned* the exact lift that the kernel trick had to be handed and
+the basis expansion had to be hand-built. This is what people mean when they say
+neural networks "learn representations", and it is why stacking more layers —
+each transforming the representation of the one below — is so powerful. Depth is
+representation upon representation.
+
+## 10. How big a network? Universal approximation, width, and depth
+
+How much can a network represent? Remarkably, almost anything. The **universal
+approximation theorem** states that a network with a *single* hidden layer, given
+enough units, can approximate any continuous function to any desired accuracy. So
+expressiveness is never the wall — in principle one hidden layer suffices for
+everything.
+
+In practice it is not so simple, and the gap is the reason for the word "deep".
+"Enough units" can be astronomically, uselessly many for a shallow network forced
+to memorise a complicated function in one layer. A **deep** network — many layers
+stacked — instead builds complex features out of simpler ones, edges into shapes
+into objects, and reaches the same expressiveness with exponentially fewer units.
+Depth is an efficiency of representation, not of raw power. *Complexity*: a
+forward pass is a handful of matrix multiplies, costing on the order of the number
+of weights per example — cheap to run, which is why a trained network predicts
+in microseconds even when training it took a fortune.
+
+## 11. Implementing it yourself
+
+A two-layer MLP forward pass, in a few lines — and proof that the right weights
+solve XOR. (Where those weights *come from* is the next chapter; here we set them
+by hand.)
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+# A 2 -> 2 -> 1 network. The hidden units compute OR and AND of the inputs;
+# the output computes "OR and NOT AND" — which is exactly XOR.
+W1 = np.array([[20.0, 20.0],   # hidden unit 1: fires if x1 OR x2
+               [20.0, 20.0]])
+b1 = np.array([-10.0, -30.0])  # ...unit 2: fires only if x1 AND x2
+W2 = np.array([[20.0, -20.0]]) # output: hidden1 AND NOT hidden2
+b2 = np.array([-10.0])
+
+def forward(x):
+    h = sigmoid(W1 @ x + b1)        # hidden layer: matmul, bias, activation
+    return sigmoid(W2 @ h + b2)[0]  # output layer: the same three steps
+
+print("input -> output (target = XOR)")
+for x1 in (0, 1):
+    for x2 in (0, 1):
+        out = forward(np.array([x1, x2], float))
+        print(f"  ({x1},{x2}) -> {out:.3f}   target {x1 ^ x2}")
+`}
+/>
+
+The forward pass is nothing but matrix-multiply, add-bias, activate, repeated per
+layer — and with these hand-chosen weights the 2-2-1 network produces clean 0s
+and 1s in the XOR pattern that no single neuron could. Scaling this up is mostly a
+matter of bigger matrices; the hard part, learning the weights instead of
+guessing them, is Chapter 22.
+
+## 12. Problems
+
+### Problem 1 — Neurons, lines, and layers
+
+A conceptual question. (a) Why is a single perceptron only ever a linear
+classifier? (b) Why can it not learn XOR, and what specifically does adding a
+hidden layer give you that fixes it? (c) Why does a network with the identity
+(linear) activation gain *nothing* from extra layers, no matter how many units?
+
+<details>
+  <summary>Show solution</summary>
+
+**(a)** A perceptron outputs $\phi(w\cdot x + b)$, and its decision flips exactly
+where $w\cdot x + b = 0$ — the equation of a line (or hyperplane). Everything on
+one side is one class, everything on the other is the other. There is no way to
+bend that surface; it is straight by construction.
+
+**(b)** XOR places the two classes in opposite corners of a square, and no
+straight line can separate opposite corners from the other two — so a single
+linear boundary cannot represent it. A hidden layer adds intermediate neurons
+that each draw their own line and build new *features*; the output neuron then
+draws a straight boundary in the space of those features, where the problem *is*
+linearly separable. The non-linearity in between is what makes those features
+more than a disguised linear combination.
+
+**(c)** With the identity activation each layer is a linear map, and the
+composition of linear maps is itself a single linear map ($W_2(W_1 x) = (W_2 W_1)
+x$). So a stack of linear layers is exactly equivalent to one linear layer — it
+can still only draw a straight boundary. Depth buys expressiveness *only* because
+a non-linear activation sits between the layers.
+
+</details>
+
+### Problem 2 — One neuron is logistic regression
+
+Implement a single sigmoid neuron's forward pass and confirm it computes exactly
+the logistic regression of Chapter 7 — same weights, same probabilities.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+w = np.array([1.5, -0.8])
+b = 0.3
+X = np.array([[1.0, 0.5], [-1.0, 2.0], [0.2, -0.3]])
+
+# Your code:
+#   1. compute the neuron's output sigmoid(w . x + b) for each row of X
+#   2. note that this is identical to logistic regression's predicted
+#      probability with the same weights and bias
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+w = np.array([1.5, -0.8]); b = 0.3
+X = np.array([[1.0, 0.5], [-1.0, 2.0], [0.2, -0.3]])
+
+neuron = sigmoid(X @ w + b)
+print("neuron outputs:", neuron.round(4))
+# logistic regression's predicted probability is the very same formula:
+logreg = sigmoid(X @ w + b)
+print("identical to logistic regression:", np.allclose(neuron, logreg))
+`}
+/>
+
+A sigmoid neuron *is* logistic regression — $\sigma(w\cdot x + b)$, the same
+weighted sum through the same squashing function. The neuron contributes no new
+idea on its own; everything new in this chapter comes from wiring many of them
+together.
+
+</details>
+
+### Problem 3 — The perceptron learning rule
+
+Implement the rule, train it on a separable set (watch it converge) and on XOR
+(watch it never converge), and explain the difference.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def perceptron(X, y, epochs=50, lr=0.1):
+    w = np.zeros(X.shape[1]); b = 0.0
+    for e in range(epochs):
+        mistakes = 0
+        for i in range(len(X)):
+            pred = 1 if X[i] @ w + b >= 0 else 0
+            if pred != y[i]:
+                w += lr * (y[i] - pred) * X[i]
+                b += lr * (y[i] - pred)
+                mistakes += 1
+        if mistakes == 0:
+            return w, b, e + 1     # converged: a full pass with no mistakes
+    return w, b, epochs
+
+# separable data
+rng = np.random.default_rng(4)
+ys = np.arange(60) % 2
+Xs = np.stack([rng.normal(np.where(ys, 1.6, -1.6), 0.5),
+               rng.normal(np.where(ys, 0.6, -0.6), 0.5)], axis=1)
+
+# Your code: run the perceptron on (Xs, ys) and report the epoch it converged;
+# then run it on the four XOR points and show it never converges.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def perceptron(X, y, epochs=50, lr=0.1):
+    w = np.zeros(X.shape[1]); b = 0.0
+    for e in range(epochs):
+        mistakes = 0
+        for i in range(len(X)):
+            pred = 1 if X[i] @ w + b >= 0 else 0
+            if pred != y[i]:
+                w += lr * (y[i] - pred) * X[i]; b += lr * (y[i] - pred); mistakes += 1
+        if mistakes == 0:
+            return w, b, e + 1
+    return w, b, epochs
+
+rng = np.random.default_rng(4)
+ys = np.arange(60) % 2
+Xs = np.stack([rng.normal(np.where(ys, 1.6, -1.6), 0.5),
+               rng.normal(np.where(ys, 0.6, -0.6), 0.5)], axis=1)
+w, b, ep = perceptron(Xs, ys, epochs=100)
+acc = ((Xs @ w + b >= 0).astype(int) == ys).mean()
+print(f"separable: converged at epoch {ep}, accuracy {acc:.2f}")
+
+Xx = np.array([[1, 1], [-1, 1], [-1, -1], [1, -1]], float)
+yx = np.array([0, 1, 0, 1])      # XOR
+w, b, ep = perceptron(Xx, yx, epochs=100)
+acc = ((Xx @ w + b >= 0).astype(int) == yx).mean()
+print(f"XOR: ran all {ep} epochs (never converged), accuracy {acc:.2f}")
+`}
+/>
+
+On separable data the loop runs out of mistakes and stops — the convergence
+theorem in action. On XOR it exhausts every epoch and still misclassifies points,
+because no weights exist that make a single line separate the classes. The rule
+is not broken; the target is impossible for one neuron.
+
+</details>
+
+### Problem 4 — Forward pass of an MLP on XOR
+
+With hand-chosen weights for a 2-2-1 network, run the forward pass, verify it
+classifies all four XOR points, then perturb a weight and watch a corner flip.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+W1 = np.array([[20.0, 20.0], [20.0, 20.0]])
+b1 = np.array([-10.0, -30.0])
+W2 = np.array([[20.0, -20.0]])
+b2 = np.array([-10.0])
+
+def forward(x):
+    h = sigmoid(W1 @ x + b1)
+    return sigmoid(W2 @ h + b2)[0]
+
+# Your code:
+#   1. print forward([x1, x2]) for all four (0/1, 0/1) inputs — should match XOR
+#   2. set b1[1] = -10 (so hidden unit 2 now computes OR, not AND) and
+#      re-print: one corner should flip and XOR should break
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+def run(W1, b1, W2, b2, label):
+    def forward(x):
+        h = sigmoid(W1 @ x + b1)
+        return sigmoid(W2 @ h + b2)[0]
+    print(label)
+    for x1 in (0, 1):
+        for x2 in (0, 1):
+            print(f"  ({x1},{x2}) -> {forward(np.array([x1, x2], float)):.2f}  target {x1 ^ x2}")
+
+W1 = np.array([[20.0, 20.0], [20.0, 20.0]]); W2 = np.array([[20.0, -20.0]]); b2 = np.array([-10.0])
+run(W1, np.array([-10.0, -30.0]), W2, b2, "correct XOR weights:")
+run(W1, np.array([-10.0, -10.0]), W2, b2, "\\nbroken (hidden 2 now = OR):")
+`}
+/>
+
+With the right weights, hidden unit 1 computes OR, hidden unit 2 computes AND, and
+the output ("OR and not AND") is exactly XOR. Change unit 2's bias so it computes
+OR instead, and the (1,1) corner flips — the network now outputs 0 where XOR wants
+0 only by accident, and the pattern breaks. The forward pass is rigid arithmetic;
+the whole game is choosing the weights, which is what training does.
+
+</details>
+
+### Problem 5 — Hidden features make XOR linear
+
+The capstone. Train a small MLP on XOR, then show that in the *hidden layer's*
+representation the points have become linearly separable, even though they were
+not in the input.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+def make_xor(n, seed):
+    rng = np.random.default_rng(seed)
+    c = np.array([[1.4, 1.4], [-1.4, 1.4], [-1.4, -1.4], [1.4, -1.4]])
+    q = np.arange(n) % 4
+    X = c[q] + rng.normal(0, 0.5, (n, 2))
+    y = ((c[q, 0] > 0) ^ (c[q, 1] > 0)).astype(float)
+    return X, y
+
+# Provided: train a 2 -> 4 -> 1 MLP by gradient descent (backprop — Chapter 22).
+def train_mlp(X, y, hidden=4, epochs=2500, lr=0.5, seed=1):
+    rng = np.random.default_rng(seed)
+    W1 = rng.normal(0, np.sqrt(2/2), (hidden, 2)); b1 = np.zeros(hidden)
+    W2 = rng.normal(0, np.sqrt(2/hidden), (1, hidden)); b2 = np.zeros(1)
+    n = len(X)
+    for _ in range(epochs):
+        H = np.tanh(X @ W1.T + b1)
+        out = sigmoid(H @ W2.T + b2).ravel()
+        dout = (out - y) / n
+        dH = np.outer(dout, W2.ravel()) * (1 - H**2)
+        W2 -= lr * (dout @ H); b2 -= lr * dout.sum()
+        W1 -= lr * (dH.T @ X); b1 -= lr * dH.sum(0)
+    return W1, b1, W2, b2
+
+X, y = make_xor(160, 3)
+W1, b1, W2, b2 = train_mlp(X, y)
+
+# Your code:
+#   1. compute the hidden activations H = tanh(X @ W1.T + b1)
+#   2. fit a plain linear classifier (logistic regression) on H, and on the raw X
+#   3. compare the two accuracies — hidden should be separable, raw should not
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+def make_xor(n, seed):
+    rng = np.random.default_rng(seed)
+    c = np.array([[1.4, 1.4], [-1.4, 1.4], [-1.4, -1.4], [1.4, -1.4]])
+    q = np.arange(n) % 4
+    return c[q] + rng.normal(0, 0.5, (n, 2)), ((c[q,0]>0) ^ (c[q,1]>0)).astype(float)
+
+def train_mlp(X, y, hidden=4, epochs=2500, lr=0.5, seed=1):
+    rng = np.random.default_rng(seed)
+    W1 = rng.normal(0, np.sqrt(2/2), (hidden, 2)); b1 = np.zeros(hidden)
+    W2 = rng.normal(0, np.sqrt(2/hidden), (1, hidden)); b2 = np.zeros(1)
+    n = len(X)
+    for _ in range(epochs):
+        H = np.tanh(X @ W1.T + b1); out = sigmoid(H @ W2.T + b2).ravel()
+        dout = (out - y) / n; dH = np.outer(dout, W2.ravel()) * (1 - H**2)
+        W2 -= lr*(dout@H); b2 -= lr*dout.sum(); W1 -= lr*(dH.T@X); b1 -= lr*dH.sum(0)
+    return W1, b1, W2, b2
+
+def fit_logreg(Z, y, steps=600, lr=0.5):
+    w = np.zeros(Z.shape[1]); b = 0.0
+    for _ in range(steps):
+        g = sigmoid(Z @ w + b) - y
+        w -= lr*(Z.T@g)/len(y); b -= lr*g.mean()
+    return lambda Z2: (sigmoid(Z2 @ w + b) >= 0.5).astype(int)
+
+X, y = make_xor(160, 3)
+W1, b1, W2, b2 = train_mlp(X, y)
+H = np.tanh(X @ W1.T + b1)
+
+print("linear classifier on HIDDEN activations:", round((fit_logreg(H, y)(H) == y).mean(), 3))
+print("linear classifier on RAW inputs:        ", round((fit_logreg(X, y)(X) == y).mean(), 3))
+`}
+/>
+
+A linear classifier is helpless on the raw XOR inputs (~50%, no better than a
+coin) but near-perfect on the hidden activations. The network has transformed the
+data into a representation where the classes *are* linearly separable — it learned
+the kernel trick, the lift you used to build by hand. That single fact —
+representations can be learned — is the whole reason the next ten years of this
+field happened.
+
+</details>
+
+---
+
+The multilayer perceptron is the hinge of this book. Behind it lie twenty
+chapters of models that drew their boundaries from a formula, a margin, a split,
+or a rotation — every one of them fitting weights to features that a person had to
+design. Ahead lies everything that calls itself deep learning, and all of it is
+this same move repeated and scaled: stack simple units, put a non-linearity
+between them, and let the network manufacture its own representations layer upon
+layer. The neuron is a humble atom — a weighted sum and a bend — but composed in
+the thousands and the millions it has learned to recognise faces, translate
+languages, and fold proteins.
+
+We have built the forward pass — what a network *is*, and what it can represent —
+but quietly assumed the one thing that makes it useful: that it can find the right
+weights from data. With a million of them tangled across a dozen layers, how could
+you possibly compute which way to nudge each one?
+
+*Next: Chapter 22 — Backpropagation and training.* How a network learns: the
+chain rule turned into an algorithm that finds every weight's gradient at once,
+and the practical craft of actually training the thing.
