@@ -178,7 +178,44 @@ export function hiddenActivations(net: MLP, x: number[], layer = 0): number[] {
   return a[layer + 1]
 }
 
-export type MLPFrame = { net: MLP; loss: number; accuracy: number; epoch: number }
+export type MLPFrame = { net: MLP; loss: number; accuracy: number; epoch: number; valLoss?: number }
+
+// ─── Backprop trace (one example, for the visualisation) ─────────────
+
+export type BackpropTrace = {
+  z: number[][] // pre-activations per layer
+  a: number[][] // activations per layer (a[0] = input)
+  delta: number[][] // dL/dz per layer — the backward error
+  gradW: number[][][] // dL/dW per layer
+  gradB: number[][] // dL/db per layer
+  output: number
+  loss: number
+}
+
+/** Forward then backward through the net for a single labelled example. */
+export function backpropTrace(net: MLP, x: number[], y: 0 | 1): BackpropTrace {
+  const { z, a } = forwardFull(net, x)
+  const L = net.W.length
+  const output = a[L][0]
+  const loss = -(y * Math.log(output + 1e-9) + (1 - y) * Math.log(1 - output + 1e-9))
+  const delta: number[][] = new Array(L)
+  const gradW: number[][][] = new Array(L)
+  const gradB: number[][] = new Array(L)
+  let d = [output - y]
+  for (let l = L - 1; l >= 0; l--) {
+    delta[l] = d
+    gradB[l] = d.slice()
+    gradW[l] = d.map((di) => a[l].map((aj) => di * aj))
+    if (l > 0) {
+      const nIn = net.W[l][0].length
+      const nd = new Array(nIn).fill(0)
+      for (let i = 0; i < d.length; i++) for (let j = 0; j < nIn; j++) nd[j] += net.W[l][i][j] * d[i]
+      for (let j = 0; j < nIn; j++) nd[j] *= activateDeriv(net.act, z[l - 1][j])
+      d = nd
+    }
+  }
+  return { z, a, delta, gradW, gradB, output, loss }
+}
 
 function cloneNet(net: MLP): MLP {
   return { W: net.W.map((m) => m.map((r) => r.slice())), b: net.b.map((r) => r.slice()), act: net.act }
@@ -209,56 +246,181 @@ function lossAndAcc(net: MLP, data: Point[]): { loss: number; acc: number } {
   return { loss: loss / data.length, acc: ok / data.length }
 }
 
-export type MLPTrainOptions = { epochs: number; lr: number; act: Activation; seed: number; recordEvery?: number }
+export type Optimizer = 'sgd' | 'momentum' | 'adam'
+
+export type MLPTrainOptions = {
+  epochs: number
+  lr: number
+  act: Activation
+  seed: number
+  optimizer?: Optimizer
+  batchSize?: number
+  weightDecay?: number
+  valData?: Point[]
+  recordEvery?: number
+}
+
+type Grads = { gW: number[][][]; gB: number[][] }
+
+function zerosLike(net: MLP): Grads {
+  return { gW: net.W.map((m) => m.map((r) => r.map(() => 0))), gB: net.b.map((r) => r.map(() => 0)) }
+}
+
+/** Accumulate backprop gradients for one example into (gW, gB). */
+function accumulateGrad(net: MLP, p: Point, g: Grads): void {
+  const L = net.W.length
+  const { z, a } = forwardFull(net, p.x)
+  let delta = [a[L][0] - p.y]
+  for (let l = L - 1; l >= 0; l--) {
+    for (let i = 0; i < delta.length; i++) {
+      g.gB[l][i] += delta[i]
+      for (let j = 0; j < a[l].length; j++) g.gW[l][i][j] += delta[i] * a[l][j]
+    }
+    if (l > 0) {
+      const nIn = net.W[l][0].length
+      const nd = new Array(nIn).fill(0)
+      for (let i = 0; i < delta.length; i++) for (let j = 0; j < nIn; j++) nd[j] += net.W[l][i][j] * delta[i]
+      for (let j = 0; j < nIn; j++) nd[j] *= activateDeriv(net.act, z[l - 1][j])
+      delta = nd
+    }
+  }
+}
 
 /**
- * Train a binary MLP by full-batch gradient descent (backprop) on the binary
- * cross-entropy loss with a sigmoid output. Returns a frame history (snapshots
- * every `recordEvery` epochs) for scrubbable playback of the boundary forming.
+ * Train a binary MLP by backprop on the binary cross-entropy loss (sigmoid
+ * output). Supports SGD / momentum / Adam, mini-batches, L2 weight decay, and
+ * optional validation-loss recording. Returns a snapshot frame history for
+ * scrubbable playback.
  */
 export function trainMLP(data: Point[], hidden: number[], opts: MLPTrainOptions): MLPFrame[] {
   const rng = createRng(opts.seed)
-  const layers = [2, ...hidden, 1]
-  const net = initNet(layers, opts.act, rng)
+  const net = initNet([2, ...hidden, 1], opts.act, rng)
   const L = net.W.length
+  const opt = opts.optimizer ?? 'sgd'
+  const wd = opts.weightDecay ?? 0
+  const batchSize = opts.batchSize ?? data.length
   const recordEvery = opts.recordEvery ?? Math.max(1, Math.floor(opts.epochs / 60))
   const frames: MLPFrame[] = []
 
+  // optimiser state
+  const vel = zerosLike(net) // momentum velocity / Adam first moment
+  const sq = zerosLike(net) // Adam second moment
+  let tStep = 0
+  const beta1 = 0.9, beta2 = 0.999, adamEps = 1e-8, mu = 0.9
+
   const snap = (epoch: number) => {
     const { loss, acc } = lossAndAcc(net, data)
-    frames.push({ net: cloneNet(net), loss, accuracy: acc, epoch })
+    const f: MLPFrame = { net: cloneNet(net), loss, accuracy: acc, epoch }
+    if (opts.valData) f.valLoss = lossAndAcc(net, opts.valData).loss
+    frames.push(f)
   }
   snap(0)
 
+  const idx = data.map((_, i) => i)
   for (let e = 1; e <= opts.epochs; e++) {
-    // accumulate gradients over the batch
-    const gW = net.W.map((m) => m.map((r) => r.map(() => 0)))
-    const gB = net.b.map((r) => r.map(() => 0))
-    for (const p of data) {
-      const { z, a } = forwardFull(net, p.x)
-      let delta = [a[L][0] - p.y] // BCE + sigmoid output
-      for (let l = L - 1; l >= 0; l--) {
-        for (let i = 0; i < delta.length; i++) {
-          gB[l][i] += delta[i]
-          for (let j = 0; j < a[l].length; j++) gW[l][i][j] += delta[i] * a[l][j]
-        }
-        if (l > 0) {
-          const nInPrev = net.W[l][0].length
-          const newDelta = new Array(nInPrev).fill(0)
-          for (let i = 0; i < delta.length; i++) for (let j = 0; j < nInPrev; j++) newDelta[j] += net.W[l][i][j] * delta[i]
-          for (let j = 0; j < nInPrev; j++) newDelta[j] *= activateDeriv(net.act, z[l - 1][j])
-          delta = newDelta
-        }
-      }
+    for (let i = idx.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1))
+      ;[idx[i], idx[j]] = [idx[j], idx[i]]
     }
-    const scale = opts.lr / data.length
-    for (let l = 0; l < L; l++) {
-      for (let i = 0; i < net.W[l].length; i++) {
-        net.b[l][i] -= scale * gB[l][i]
-        for (let j = 0; j < net.W[l][i].length; j++) net.W[l][i][j] -= scale * gW[l][i][j]
+    for (let start = 0; start < idx.length; start += batchSize) {
+      const batch = idx.slice(start, start + batchSize)
+      const g = zerosLike(net)
+      for (const bi of batch) accumulateGrad(net, data[bi], g)
+      tStep++
+      const n = batch.length
+      for (let l = 0; l < L; l++) {
+        for (let i = 0; i < net.W[l].length; i++) {
+          // bias
+          {
+            const grad = g.gB[l][i] / n
+            const upd = optimStep(grad, vel.gB[l], sq.gB[l], i, opt, opts.lr, beta1, beta2, adamEps, mu, tStep)
+            net.b[l][i] -= upd
+          }
+          for (let j = 0; j < net.W[l][i].length; j++) {
+            const grad = g.gW[l][i][j] / n + wd * net.W[l][i][j]
+            const upd = optimStep(grad, vel.gW[l][i], sq.gW[l][i], j, opt, opts.lr, beta1, beta2, adamEps, mu, tStep)
+            net.W[l][i][j] -= upd
+          }
+        }
       }
     }
     if (e % recordEvery === 0 || e === opts.epochs) snap(e)
   }
   return frames
+}
+
+function optimStep(
+  grad: number, m: number[], v: number[], k: number, opt: Optimizer,
+  lr: number, beta1: number, beta2: number, eps: number, mu: number, t: number,
+): number {
+  if (opt === 'momentum') {
+    m[k] = mu * m[k] + grad
+    return lr * m[k]
+  }
+  if (opt === 'adam') {
+    m[k] = beta1 * m[k] + (1 - beta1) * grad
+    v[k] = beta2 * v[k] + (1 - beta2) * grad * grad
+    const mh = m[k] / (1 - Math.pow(beta1, t))
+    const vh = v[k] / (1 - Math.pow(beta2, t))
+    return (lr * mh) / (Math.sqrt(vh) + eps)
+  }
+  return lr * grad // sgd
+}
+
+// ─── Loss surface over two chosen weights (for the landscape widget) ─
+
+export type WeightRef = { layer: number; i: number; j: number } // j < 0 → bias i
+
+function getW(net: MLP, r: WeightRef): number {
+  return r.j < 0 ? net.b[r.layer][r.i] : net.W[r.layer][r.i][r.j]
+}
+function setW(net: MLP, r: WeightRef, v: number): void {
+  if (r.j < 0) net.b[r.layer][r.i] = v
+  else net.W[r.layer][r.i][r.j] = v
+}
+
+/** grid×grid loss values varying two weights around the net's current values. */
+export function lossSurface(net: MLP, data: Point[], a1: WeightRef, a2: WeightRef, range: number, grid: number): { surface: number[][]; c1: number; c2: number } {
+  const base = cloneNet(net)
+  const c1 = getW(base, a1)
+  const c2 = getW(base, a2)
+  const surface: number[][] = []
+  for (let i = 0; i < grid; i++) {
+    const row: number[] = []
+    setW(base, a1, c1 + ((i / (grid - 1)) * 2 - 1) * range)
+    for (let j = 0; j < grid; j++) {
+      setW(base, a2, c2 + ((j / (grid - 1)) * 2 - 1) * range)
+      row.push(lossAndAcc(base, data).loss)
+    }
+    surface.push(row)
+  }
+  setW(base, a1, c1)
+  setW(base, a2, c2)
+  return { surface, c1, c2 }
+}
+
+/** Gradient descent restricted to two weights (finite-difference), for the
+ *  landscape trajectory. Returns the path in (w1, w2) weight-value space. */
+export function descendSurface(
+  net: MLP, data: Point[], a1: WeightRef, a2: WeightRef,
+  start: [number, number], lr: number, steps: number,
+): [number, number][] {
+  const base = cloneNet(net)
+  let w1 = start[0]
+  let w2 = start[1]
+  const eps = 1e-3
+  const L = (v1: number, v2: number): number => {
+    setW(base, a1, v1)
+    setW(base, a2, v2)
+    return lossAndAcc(base, data).loss
+  }
+  const path: [number, number][] = [[w1, w2]]
+  for (let s = 0; s < steps; s++) {
+    const g1 = (L(w1 + eps, w2) - L(w1 - eps, w2)) / (2 * eps)
+    const g2 = (L(w1, w2 + eps) - L(w1, w2 - eps)) / (2 * eps)
+    w1 -= lr * g1
+    w2 -= lr * g2
+    path.push([w1, w2])
+  }
+  return path
 }

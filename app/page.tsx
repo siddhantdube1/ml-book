@@ -62,7 +62,7 @@ const parts: { title: string; chapters: Chapter[] }[] = [
     title: 'VII — Neural networks',
     chapters: [
       { num: 21, title: 'The perceptron and multilayer perceptrons', blurb: 'From a single neuron to a network.', href: '/chapters/21-perceptron-and-mlps' },
-      { num: 22, title: 'Backpropagation and training', blurb: 'How a network learns, derived from first principles.' },
+      { num: 22, title: 'Backpropagation and training', blurb: 'How a network learns, derived from first principles.', href: '/chapters/22-backpropagation-and-training' },
     ],
   },
 ]

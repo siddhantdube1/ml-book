@@ -1,0 +1,629 @@
+import Backprop from '@/components/Backprop'
+import LearningRateNN from '@/components/LearningRateNN'
+import LossLandscape from '@/components/LossLandscape'
+import OptimizerRace from '@/components/OptimizerRace'
+import OverfitRegularise from '@/components/OverfitRegularise'
+import PyodideEditor from '@/components/PyodideEditor'
+
+export const metadata = {
+  title: 'Backpropagation and training',
+  description:
+    'How a network learns: the chain rule turned into an algorithm that finds every weight’s gradient in one backward sweep, and the craft of actually training the thing — learning rates, optimisers, loss landscapes, and regularisation. Five interactive visualisations, runnable Python, and five problems.',
+  openGraph: {
+    title: 'Backpropagation and training',
+    description:
+      'An interactive walk-through of backpropagation and neural-network training — the backward pass, learning rates, the loss landscape, Adam, and regularisation.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 22 · Part VII — Neural networks
+</p>
+
+# Backpropagation and training
+
+*How a network learns: the chain rule turned into an algorithm that finds every
+weight's gradient at once — and the craft of actually training the thing.*
+
+A trained network is a marvel of cooperation: a million numbers, spread across a
+dozen layers, that together turn a photograph into the word "cat". An untrained
+one is a million numbers chosen at random, and it turns the same photograph into
+noise. Everything that separates the two — all of the intelligence — lives in the
+gap, and getting from one to the other means answering a question that sounds
+impossible. The network makes a mistake; the error arrives as a single number at
+the very end. Which of the million weights, buried layers deep, was to blame, and
+by how much should each one change?
+
+You could imagine finding out by brute force: nudge one weight a hair, run the
+whole network again, and see whether the error went up or down. Do that for every
+weight and you would know the gradient — the direction to step each one — exactly.
+You would also need a million forward passes for a single step of learning, and a
+billion-weight network would never finish its first. Brute force is a non-starter
+by a factor of millions, and for a long time the lack of anything better is what
+kept neural networks a curiosity.
+
+The thing that is better is **backpropagation**, and its secret is almost
+deflating: it is just the chain rule from first-year calculus, applied with enough
+care to share its work. In a single backward sweep through the network — one extra
+pass, not a million — it computes the gradient of the loss with respect to *every*
+weight at once. That one idea is what turned neural networks from a curiosity into
+the most powerful technology of the age, and it is, at bottom, a piece of
+bookkeeping. This chapter derives it, watches it run, and then turns to the craft
+that surrounds it — learning rates, optimisers, bumpy landscapes, and the
+ever-present danger of a network that memorises instead of learns.
+
+## 1. The credit-assignment problem
+
+Frame the difficulty precisely, because backprop is the answer to it. Training is
+gradient descent (Chapter 6): to improve the network, we need $\partial L /
+\partial w$ for every weight $w$ — how the loss would change if we nudged that one
+weight. With those gradients in hand, we step each weight a little in the
+direction that lowers the loss, and repeat.
+
+The trouble is computing them. A weight in the first layer affects the loss only
+through a long chain — it changes a hidden unit, which changes the next layer,
+which changes the next, all the way to the output. Its influence is tangled
+together with every other weight's. The brute-force approach — perturb it, re-run
+the network, measure the change — gives one gradient per forward pass, so a
+network with a million weights needs a million forward passes for a *single*
+gradient-descent step. Modern networks have billions. This is the
+**credit-assignment problem**: given one number of error at the end, fairly
+distribute the blame across millions of weights at the start. We need all the
+gradients from essentially one pass, not a million.
+
+## 2. The chain rule, the only idea you need
+
+The whole solution rests on a fact you already know. A neural network is a deep
+*composition* of simple functions — layer after layer, each feeding the next — and
+calculus tells us exactly how to differentiate a composition. If $L$ depends on
+$x$ through an intermediate $g$, then
+
+$$\frac{\partial L}{\partial x} = \frac{\partial L}{\partial g} \cdot \frac{\partial g}{\partial x}.$$
+
+The gradient of a composition is the *product* of the local gradients along the
+chain. To find how a weight deep in the network affects the loss, you multiply
+together the local derivatives of every step between them. That is all
+backpropagation is — the chain rule, applied to the network's composition. The
+cleverness is purely organisational: many of those chains share the same
+beginnings, so if you compute them in the right order — from the output backward —
+each shared piece is computed once and reused. Brute force redoes the shared work
+a million times; backprop does it once.
+
+## 3. The forward pass remembers
+
+Those local derivatives depend on the values flowing through the network — a
+unit's gradient involves its own activation and weighted sum. So backprop begins
+by running the **forward pass** (Chapter 21) and *storing* every intermediate: each
+layer's weighted sum $z$ and activation $a$. Think of the network as a
+**computational graph**, a chain of little operations. The forward pass sweeps
+left to right and fills in every node's *value*; the backward pass will sweep right
+to left and fill in every node's *gradient*. Run forward, remember everything,
+then run backward. With that, we can watch the algorithm itself.
+
+## 4. Backpropagation: the backward pass
+
+Here is the algorithm, made concrete on a tiny network and one example.
+
+<Backprop />
+
+Step through it. The forward pass fills each node with its value and produces a
+loss. Then the error is pushed *backward*: it starts at the output as the simple
+difference between prediction and target, and each layer, working right to left,
+takes the gradient on its output and turns it into two things — the gradient on
+its *weights* (what we are after), and the gradient on its *input*, which it
+passes to the layer before. The error flows back along the very same wires the
+signal flowed forward through, and by the time the sweep reaches the first layer,
+every weight in the network has its gradient. One forward pass and one backward
+pass — not a million.
+
+## 5. The shape of it: forward signal, backward error
+
+The mechanics distil into three facts worth committing to memory, because they
+*are* backpropagation. First, at the output, the error is just **prediction minus
+target**, $\delta = \hat y - y$ — clean, for the sigmoid-with-cross-entropy and
+softmax losses we use (the same tidy form as logistic regression in Chapter 7).
+Second, to send the error back through a layer, **multiply by the weights and by
+the activation's derivative**: $\delta^{(l-1)} = \big(W^{(l)\top}\delta^{(l)}\big)
+\odot \phi'(z^{(l-1)})$ — the transposed weights route the blame to the inputs, and
+$\phi'$ accounts for the bend each unit applied. Third, each weight's gradient is
+its **backward error times its forward signal**:
+
+$$\frac{\partial L}{\partial w_{ij}} = \delta_i\, a_j.$$
+
+That last equation is the heart of it: at every weight, the error coming back from
+the output meets the activation that went forward into it, and their product is
+the gradient. Forward signal, backward error, multiplied — everywhere, at once.
+
+## 6. From gradient to step: batch, mini-batch, SGD
+
+Backprop gives the gradient for *one* example; training combines them. **Batch**
+gradient descent averages the gradient over the entire dataset before each step —
+smooth and accurate, but slow, and it must see all the data to move once.
+**Stochastic** gradient descent (SGD) goes to the other extreme: one example per
+step, so the gradient is a noisy estimate, but steps are cheap and frequent, and
+the noise can even help jiggle the optimiser out of bad spots. **Mini-batch**
+descent — a few dozen examples per step — is the universal compromise everyone
+actually uses: enough examples to estimate the gradient decently, few enough to
+step often. One full pass through the data is an **epoch**, and training runs for
+many.
+
+## 7. The learning rate, again — and why it is everything
+
+Backprop tells you which *direction* to step each weight; the **learning rate**
+tells you how *far*, and it is the single most consequential knob in training a
+network — the same $\eta$ from Chapter 6, now steering millions of parameters at
+once.
+
+<LearningRateNN />
+
+Drag it through its three regimes. Too small, and the loss inches down so slowly
+that training never arrives — the boundary barely forms. Too large, and each step
+overshoots the valley it was aiming for; the loss spikes and thrashes, the
+boundary lurching wildly, and in the worst case it diverges to infinity. In the
+band between, the loss glides smoothly down and the moons separate. Finding that
+band — by trial, by schedules that shrink the rate over time, or by optimisers
+that adapt it automatically (§9) — is most of the practical art of training.
+
+## 8. The landscape is not a bowl
+
+There is a deeper reason training is hard, and it is worth seeing directly. The
+losses of Parts II and III were **convex** — single smooth bowls, where gradient
+descent is guaranteed to reach the one global minimum. A neural network's loss is
+nothing like that.
+
+<LossLandscape />
+
+This is a real slice of a tiny network's loss surface over two of its weights, and
+it is **non-convex**: bumpy, with more than one valley separated by ridges.
+Gradient descent has no map; it simply rolls downhill from wherever it starts, so
+two different starting points settle into two different minima, and neither is
+guaranteed to be the best one possible. By the theory of Chapter 6, this should be
+a disaster. The astonishing empirical fact — and a large part of why deep learning
+works at all — is that it is not. In the very high-dimensional weight spaces of
+real networks, the bad, sharp minima turn out to be rare, good-enough valleys are
+almost everywhere, and most paths downhill reach a solution that generalises
+perfectly well. Non-convexity is real; in practice, it rarely bites.
+
+## 9. Better steps: momentum and Adam
+
+Plain gradient descent is inefficient on these landscapes — it crawls across flat
+plateaus and zig-zags down narrow ravines. Two refinements fix it, and they are
+what make large networks trainable in reasonable time.
+
+<OptimizerRace />
+
+**Momentum** (Chapter 6) gives the optimiser a velocity: it accumulates a running
+average of past gradients, so it rolls *through* small bumps and *accelerates*
+down consistent slopes instead of restarting its step each time. **Adam** goes
+further and adapts the learning rate *per weight* — keeping a running estimate of
+each gradient's typical size and dividing by it, so weights with small, steady
+gradients take big steps and weights with large, erratic ones take small steps.
+The race makes the difference plain: plain SGD inches down and stalls, momentum
+rolls past it, and Adam reaches a low loss in a fraction of the epochs. It is the
+default optimiser of modern deep learning for exactly this reason.
+
+## 10. Why training is hard, and how we cope
+
+Two failure modes round out the practical picture, and both connect to earlier
+chapters. The first is **vanishing and exploding gradients**. The backward pass
+*multiplies* a derivative at every layer, so in a deep network those factors
+compound: if they are mostly less than one the gradient shrinks toward zero before
+it reaches the early layers (which then barely learn), and if mostly greater than
+one it blows up. The flat tails of sigmoid and tanh (Chapter 21), where $\phi'
+\approx 0$, are a prime culprit — which is why **ReLU**, careful weight
+**initialisation**, and normalisation techniques exist, all aimed at keeping the
+backward signal alive.
+
+The second is **overfitting**, and it returns with a vengeance, because a big
+network has more than enough capacity to memorise its training set outright.
+
+<OverfitRegularise />
+
+With no regularisation, the network drives its training loss to zero by
+memorising every noisy point — while the validation loss bottoms out and climbs,
+the overfitting U of Chapters 11 and 14, now on a network, and the boundary
+contorts grotesquely. The cures are the ones the whole book has built: **weight
+decay** (the L2 penalty of Chapter 9, shrinking the weights), **early stopping**
+(halt at the validation minimum, as in Chapters 11 and 14), and the
+network-native **dropout** — randomly silencing units during training so the
+network cannot lean too hard on any one of them. Turn up the weight decay and the
+boundary smooths, the curves pull back together, and the network generalises
+again. *Complexity*: the backward pass costs about the same as the forward pass —
+on the order of the number of weights per example — which is the entire reason
+backprop scales to networks with billions of them.
+
+## 11. Implementing it yourself
+
+Backpropagation from scratch — the forward pass storing activations, the backward
+pass computing every gradient, and a descent loop — training a 2-layer network on
+XOR until it solves the problem a single neuron could not.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+def make_xor(n, seed):
+    rng = np.random.default_rng(seed)
+    c = np.array([[1.4, 1.4], [-1.4, 1.4], [-1.4, -1.4], [1.4, -1.4]])
+    q = np.arange(n) % 4
+    return c[q] + rng.normal(0, 0.5, (n, 2)), ((c[q,0] > 0) ^ (c[q,1] > 0)).astype(float)
+
+X, y = make_xor(160, 3)
+n, h = len(X), 4
+rng = np.random.default_rng(2)
+W1 = rng.normal(0, np.sqrt(2/2), (h, 2)); b1 = np.zeros(h)      # 2 -> 4
+W2 = rng.normal(0, np.sqrt(2/h), (1, h)); b2 = np.zeros(1)      # 4 -> 1
+
+for epoch in range(2001):
+    # ── forward pass (remember Z1, A1, A2) ──
+    Z1 = X @ W1.T + b1;  A1 = np.tanh(Z1)
+    A2 = sigmoid(A1 @ W2.T + b2).ravel()
+
+    # ── backward pass (the chain rule, output to input) ──
+    dZ2 = (A2 - y) / n                          # error at the output: y_hat - y
+    gW2 = dZ2 @ A1;  gb2 = dZ2.sum()            # grad = backward error x forward signal
+    dZ1 = np.outer(dZ2, W2.ravel()) * (1 - A1**2)   # push back: x W2, x tanh'(Z1)
+    gW1 = dZ1.T @ X; gb1 = dZ1.sum(0)
+
+    # ── gradient-descent step ──
+    W2 -= 0.5 * gW2; b2 -= 0.5 * gb2
+    W1 -= 0.5 * gW1; b1 -= 0.5 * gb1
+
+    if epoch % 500 == 0:
+        loss = -(y*np.log(A2+1e-9) + (1-y)*np.log(1-A2+1e-9)).mean()
+        acc = ((A2 >= 0.5).astype(int) == y).mean()
+        print(f"epoch {epoch:4d}: loss {loss:.4f}  accuracy {acc:.3f}")
+`}
+/>
+
+The backward pass is four lines, mirroring the forward pass in reverse: the output
+error $\hat y - y$, pushed back through the weights and the activation's
+derivative, meeting the stored forward activations to form every gradient. Run it
+and the loss falls toward zero as the network learns the XOR no single neuron could
+— the whole of Chapter 21 and Chapter 22, in thirty lines.
+
+## 12. Problems
+
+### Problem 1 — The chain rule and the landscape
+
+A conceptual question. (a) Why is computing gradients by perturbing each weight
+and re-running the network hopeless for a large network, and how does one backward
+pass fix it? (b) Why is a network's loss surface non-convex, and why does gradient
+descent work on it anyway? (c) How do saturating activations like sigmoid and tanh
+cause vanishing gradients?
+
+<details>
+  <summary>Show solution</summary>
+
+**(a)** Perturbing one weight and re-running gives that weight's gradient at the
+cost of a full forward pass, so a network with $W$ weights needs $W$ forward passes
+for a single gradient-descent step — millions or billions of passes per step,
+hopeless. Backpropagation computes *all* $W$ gradients in one forward pass plus one
+backward pass, by applying the chain rule from the output backward and reusing the
+shared sub-computations. The cost goes from $O(W)$ passes to $O(1)$.
+
+**(b)** A network composes many non-linear layers, and the loss as a function of
+its weights is correspondingly bumpy — full of local minima, saddle points, and
+plateaus — rather than a single convex bowl. Gradient descent only ever rolls
+downhill, so it can settle in a local minimum, with no guarantee of the global
+best. It works anyway because in the very high-dimensional weight spaces of real
+networks, poor sharp minima are rare and good-enough valleys are abundant, so
+almost any downhill path reaches a solution that generalises well.
+
+**(c)** The backward pass multiplies by each layer's activation derivative
+$\phi'(z)$. Sigmoid and tanh are flat at their extremes, where $\phi'(z) \approx
+0$, so when units saturate the gradient is multiplied by near-zero factors layer
+after layer and shrinks toward nothing before it reaches the early layers — which
+therefore barely learn. ReLU, whose derivative is exactly 1 for positive inputs,
+avoids this.
+
+</details>
+
+### Problem 2 — Backprop on one neuron, checked by finite differences
+
+Implement the forward and backward pass for a single sigmoid neuron and confirm the
+backprop gradient matches a numerical (finite-difference) gradient.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+x = np.array([0.6, -0.4]); y = 1.0
+w = np.array([0.5, -0.3]); b = 0.1
+
+# Your code:
+#   1. forward: p = sigmoid(w . x + b); loss = -(y log p + (1-y) log(1-p))
+#   2. backprop gradient: dL/dw = (p - y) * x   (the clean sigmoid+BCE form)
+#   3. finite-difference gradient: nudge each weight by +/- eps and divide
+#   4. confirm the two match
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+x = np.array([0.6, -0.4]); y = 1.0
+w = np.array([0.5, -0.3]); b = 0.1
+
+def loss(w, b):
+    p = sigmoid(x @ w + b)
+    return -(y * np.log(p + 1e-9) + (1 - y) * np.log(1 - p + 1e-9))
+
+p = sigmoid(x @ w + b)
+grad_w = (p - y) * x                 # backprop
+
+eps = 1e-6
+fd = np.array([(loss(w + eps*np.eye(2)[k], b) - loss(w - eps*np.eye(2)[k], b)) / (2*eps)
+               for k in range(2)])
+
+print("backprop gradient:", grad_w.round(6))
+print("finite-diff:      ", fd.round(6))
+print("match:", np.allclose(grad_w, fd, atol=1e-5))
+`}
+/>
+
+The clean $\hat p - y$ form drops straight out of the chain rule for sigmoid plus
+cross-entropy, and it matches the finite-difference gradient to many decimals. A
+finite-difference check like this is how you debug *any* backprop implementation:
+if the analytic gradient and the numerical one disagree, the analytic one is wrong.
+
+</details>
+
+### Problem 3 — Backprop for a 2-layer network
+
+Implement the full backward pass of a 2-`h`-1 network, verify the gradients against
+finite differences, and confirm a step lowers the loss.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+rng = np.random.default_rng(1)
+X = rng.normal(0, 1, (40, 2)); y = (X[:, 0] * X[:, 1] > 0).astype(float)   # XOR-ish
+W1 = rng.normal(0, .6, (3, 2)); b1 = np.zeros(3)
+W2 = rng.normal(0, .6, (1, 3)); b2 = np.zeros(1)
+
+# Your code:
+#   1. forward: A1 = tanh(X W1^T + b1); A2 = sigmoid(A1 W2^T + b2)
+#   2. backward: dZ2 = (A2 - y)/n; gW2 = dZ2 @ A1; dZ1 = (dZ2 outer W2) * (1-A1^2);
+#      gW1 = dZ1^T @ X
+#   3. check gW1[0,0] against a finite difference; confirm one step lowers the loss
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+rng = np.random.default_rng(1)
+X = rng.normal(0, 1, (40, 2)); y = (X[:, 0] * X[:, 1] > 0).astype(float)
+P = [rng.normal(0, .6, (3, 2)), np.zeros(3), rng.normal(0, .6, (1, 3)), np.zeros(1)]
+
+def loss(P):
+    W1, b1, W2, b2 = P
+    A2 = sigmoid(np.tanh(X @ W1.T + b1) @ W2.T + b2).ravel()
+    return -(y*np.log(A2+1e-9) + (1-y)*np.log(1-A2+1e-9)).mean()
+
+def grads(P):
+    W1, b1, W2, b2 = P; n = len(X)
+    A1 = np.tanh(X @ W1.T + b1); A2 = sigmoid(A1 @ W2.T + b2).ravel()
+    dZ2 = (A2 - y) / n
+    dZ1 = np.outer(dZ2, W2.ravel()) * (1 - A1**2)
+    return [dZ1.T @ X, dZ1.sum(0), (dZ2 @ A1)[None, :], np.array([dZ2.sum()])]
+
+g = grads(P)
+eps = 1e-5; Pu = [p.copy() for p in P]; Pd = [p.copy() for p in P]
+Pu[0][0, 0] += eps; Pd[0][0, 0] -= eps
+print("gW1[0,0] backprop:", round(g[0][0, 0], 6), " finite-diff:", round((loss(Pu) - loss(Pd)) / (2*eps), 6))
+
+before = loss(P)
+for i in range(4): P[i] -= 0.5 * g[i]
+print(f"loss before step {before:.4f} -> after {loss(P):.4f}")
+`}
+/>
+
+The backward pass is the chain rule run twice: the output error $\hat y - y$ gives
+the output-layer gradients directly, then it is pushed back through $W_2$ and the
+$\tanh$ derivative $1 - a^2$ to give the hidden-layer gradients. The analytic
+gradient matches the finite difference, and a single step lowers the loss — proof
+the gradients point downhill.
+
+</details>
+
+### Problem 4 — The learning rate
+
+Train the same network at several learning rates and report the final (and peak)
+loss — showing the crawl, the clean descent, and the divergence.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+def make_moons(n, seed, noise=0.2):
+    rng = np.random.default_rng(seed); half = n // 2; S = 1.7; P = []; y = []
+    for i in range(half):
+        t = i/max(half-1,1)*np.pi
+        P.append([S*(np.cos(t)-0.5)+rng.normal(0,noise), S*(np.sin(t)-0.25)+rng.normal(0,noise)]); y.append(0)
+    for i in range(n-half):
+        t = i/max(half-1,1)*np.pi
+        P.append([S*(0.5-np.cos(t))+rng.normal(0,noise), S*(0.25-np.sin(t))+rng.normal(0,noise)]); y.append(1)
+    return np.array(P), np.array(y, float)
+
+X, y = make_moons(160, 5)
+
+# Your code: write train(X, y, h, lr, epochs) using the backprop from Problem 3,
+# returning the final loss (and the peak loss seen during training). Run it for
+# lr in [0.03, 0.5, 150] and print the three regimes.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+def make_moons(n, seed, noise=0.2):
+    rng = np.random.default_rng(seed); half = n // 2; S = 1.7; P = []; y = []
+    for i in range(half):
+        t = i/max(half-1,1)*np.pi
+        P.append([S*(np.cos(t)-0.5)+rng.normal(0,noise), S*(np.sin(t)-0.25)+rng.normal(0,noise)]); y.append(0)
+    for i in range(n-half):
+        t = i/max(half-1,1)*np.pi
+        P.append([S*(0.5-np.cos(t))+rng.normal(0,noise), S*(0.25-np.sin(t))+rng.normal(0,noise)]); y.append(1)
+    return np.array(P), np.array(y, float)
+
+def train(X, y, h, lr, epochs, seed=2):
+    rng = np.random.default_rng(seed); n = len(X)
+    W1 = rng.normal(0, np.sqrt(2/2), (h, 2)); b1 = np.zeros(h)
+    W2 = rng.normal(0, np.sqrt(2/h), (1, h)); b2 = np.zeros(1); peak = 0.0
+    for _ in range(epochs):
+        A1 = np.tanh(X @ W1.T + b1); A2 = sigmoid(A1 @ W2.T + b2).ravel()
+        peak = max(peak, -(y*np.log(A2+1e-9)+(1-y)*np.log(1-A2+1e-9)).mean())
+        dZ2 = (A2 - y) / n; dZ1 = np.outer(dZ2, W2.ravel()) * (1 - A1**2)
+        W2 -= lr*(dZ2 @ A1); b2 -= lr*dZ2.sum(); W1 -= lr*(dZ1.T @ X); b1 -= lr*dZ1.sum(0)
+    A2 = sigmoid(np.tanh(X @ W1.T + b1) @ W2.T + b2).ravel()
+    return -(y*np.log(A2+1e-9)+(1-y)*np.log(1-A2+1e-9)).mean(), peak
+
+X, y = make_moons(160, 5)
+for lr in [0.03, 0.5, 150]:
+    final, peak = train(X, y, 12, lr, 200)
+    tag = "crawl" if final > 0.25 and peak < 1 else "diverged" if final > 0.5 else "good"
+    print(f"lr={lr:<5} final {final:.3f}  peak {peak:.2f}  ({tag})")
+`}
+/>
+
+At $\eta = 0.03$ the loss barely falls — a crawl. At $0.5$ it descends to near
+zero — the sweet spot. At $150$ every step massively overshoots; the loss spikes
+to enormous values and never settles — divergence. The same backward pass; only
+the size of the step changed.
+
+</details>
+
+### Problem 5 — Overfitting and weight decay
+
+The capstone, tying the regularisation of Chapters 9 and 11 to neural networks.
+Train a deliberately oversized network on a tiny noisy dataset, watch validation
+loss turn up while training loss collapses, then add weight decay and watch the gap
+close.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+def make_moons(n, seed, noise):
+    rng = np.random.default_rng(seed); half = n // 2; S = 1.7; P = []; y = []
+    for i in range(half):
+        t = i/max(half-1,1)*np.pi
+        P.append([S*(np.cos(t)-0.5)+rng.normal(0,noise), S*(np.sin(t)-0.25)+rng.normal(0,noise)]); y.append(0)
+    for i in range(n-half):
+        t = i/max(half-1,1)*np.pi
+        P.append([S*(0.5-np.cos(t))+rng.normal(0,noise), S*(0.25-np.sin(t))+rng.normal(0,noise)]); y.append(1)
+    return np.array(P), np.array(y, float)
+
+Xtr, ytr = make_moons(24, 7, 0.5)      # tiny + noisy -> easy to memorise
+Xval, yval = make_moons(500, 99, 0.5)
+
+# Your code: train a big hidden layer (h=60) for many epochs with an L2 weight
+# decay term (gradient += wd * W). Compare wd=0 vs wd=0.01: report training loss
+# and FINAL validation loss. Without decay, validation loss should be far worse.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(z):
+    return np.where(z >= 0, 1 / (1 + np.exp(-z)), np.exp(z) / (1 + np.exp(z)))
+
+def make_moons(n, seed, noise):
+    rng = np.random.default_rng(seed); half = n // 2; S = 1.7; P = []; y = []
+    for i in range(half):
+        t = i/max(half-1,1)*np.pi
+        P.append([S*(np.cos(t)-0.5)+rng.normal(0,noise), S*(np.sin(t)-0.25)+rng.normal(0,noise)]); y.append(0)
+    for i in range(n-half):
+        t = i/max(half-1,1)*np.pi
+        P.append([S*(0.5-np.cos(t))+rng.normal(0,noise), S*(0.25-np.sin(t))+rng.normal(0,noise)]); y.append(1)
+    return np.array(P), np.array(y, float)
+
+def bce(W1, b1, W2, b2, X, y):
+    a = sigmoid(np.tanh(X @ W1.T + b1) @ W2.T + b2).ravel()
+    return -(y*np.log(a+1e-9) + (1-y)*np.log(1-a+1e-9)).mean()
+
+def train(X, y, h, lr, epochs, wd, seed=3):
+    rng = np.random.default_rng(seed); n = len(X)
+    W1 = rng.normal(0, np.sqrt(2/2), (h, 2)); b1 = np.zeros(h)
+    W2 = rng.normal(0, np.sqrt(2/h), (1, h)); b2 = np.zeros(1)
+    for _ in range(epochs):
+        A1 = np.tanh(X @ W1.T + b1); A2 = sigmoid(A1 @ W2.T + b2).ravel()
+        dZ2 = (A2 - y) / n; dZ1 = np.outer(dZ2, W2.ravel()) * (1 - A1**2)
+        W2 -= lr*((dZ2 @ A1) + wd*W2); b2 -= lr*dZ2.sum()
+        W1 -= lr*((dZ1.T @ X) + wd*W1); b1 -= lr*dZ1.sum(0)
+    return W1, b1, W2, b2
+
+Xtr, ytr = make_moons(24, 7, 0.5); Xval, yval = make_moons(500, 99, 0.5)
+for wd in [0.0, 0.01]:
+    W1, b1, W2, b2 = train(Xtr, ytr, 60, 0.2, 8000, wd)
+    print(f"wd={wd}:  train {bce(W1,b1,W2,b2,Xtr,ytr):.3f}   validation {bce(W1,b1,W2,b2,Xval,yval):.3f}")
+`}
+/>
+
+With no weight decay the network drives its training loss to nearly zero —
+memorising all 24 noisy points — but its validation loss balloons, because the
+contorted boundary it learned fits the noise, not the pattern. A small weight
+decay holds the weights down, the boundary stays smooth, and the validation loss
+falls dramatically. The lesson of Chapter 9 — that shrinking the weights tames
+overfitting — is exactly as true for a neural network as it was for linear
+regression. The model changed; the principle did not.
+
+</details>
+
+---
+
+And that is the engine. A network is a tower of weighted sums and gentle bends;
+backpropagation is the chain rule that tells every weight which way to move; and
+gradient descent, step by patient step, walks the whole tower downhill toward
+something that works. Everything you have read about since Chapter 21 — and
+everything you will read about beyond this book, the convolutional networks that
+see, the recurrent and attention-based networks that read and speak — is this same
+machinery, scaled up and shaped to its task. The atom did not change; we only
+learned to build with it.
+
+Look back over the whole arc. You began with a single straight line fit to a cloud
+of points, and the questions that line could not answer pulled you forward: how to
+optimise it when there was no formula, how to bend it, how to trust it, how to
+grow a forest of them, how to find structure with no labels at all, and finally
+how to stack the simplest possible unit into something that learns its own way of
+seeing. Every chapter was a model, but the real subject was always the same
+handful of ideas worn smooth by repetition — a model, a loss, a way to make the
+loss smaller, and the unblinking discipline of asking whether it actually
+generalises. Those ideas do not run out at the end of this book. They are the
+whole of the field, and you now have them. Go build something.
