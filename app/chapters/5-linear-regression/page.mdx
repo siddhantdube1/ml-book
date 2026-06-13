@@ -1,0 +1,460 @@
+import LineFit from '@/components/LineFit'
+import LeastSquares from '@/components/LeastSquares'
+import ResidualsR2 from '@/components/ResidualsR2'
+import PyodideEditor from '@/components/PyodideEditor'
+
+export const metadata = {
+  title: 'Linear regression',
+  description:
+    'The mother of all models: the line of best fit. Residuals, the mean-squared-error loss, the normal-equation closed form, R², and what coefficients mean — and the cliff-hanger that motivates gradient descent. Three interactive visualisations, runnable Python, and five problems.',
+  openGraph: {
+    title: 'Linear regression',
+    description:
+      'An interactive walk-through of linear regression — residuals, least squares, the normal equations, R², and the limits of the closed form.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 5 · Part I — Foundations
+</p>
+
+# Linear regression
+
+*The mother of all models. The line of best fit — a loss that says what "best"
+means, and a formula that finds it — and the question whose answer is the rest of
+the book.*
+
+Plot a scatter of points that trend upward — hours studied against exam score,
+square footage against house price, advertising spend against sales — and your eye
+draws a line through them almost involuntarily. Linear regression is that instinct
+made precise. It is the oldest model in statistics, the simplest model that
+genuinely *learns* by fitting parameters to data, and the conceptual ancestor of an
+astonishing amount of what follows — logistic regression, neural networks, and more
+are all, at heart, linear regression with extra steps. If you understand this
+chapter deeply, much of the rest of the book is variations on it.
+
+Unlike the k-nearest neighbours of Chapter 4, which kept the whole dataset and
+consulted it at prediction time, linear regression *distils* the data into a handful
+of numbers — a slope and an intercept — and then throws the data away. That is the
+shape of nearly every model to come: a small set of learned parameters that capture
+the pattern. To find them we need to say exactly what "best fit" means, which means a
+loss; and then we need to minimise that loss, which for this one model we can do with
+a clean formula — and the moment we ask what happens when we *can't*, we have walked
+straight into Chapter 6.
+
+## 1. Fitting a line to a trend
+
+The setup: you have pairs of numbers — an input $x$ and an output $y$ for each
+example — and you believe $y$ rises (or falls) roughly linearly with $x$. You want a
+rule that predicts $y$ from $x$, both to understand the relationship and to predict
+$y$ for new inputs you have not measured. A straight line is the simplest such rule,
+and often a remarkably good one.
+
+The art is that infinitely many lines could be drawn through a cloud of points, and
+they are not equally good. Some pass right through the heart of the trend; others
+sit too high, too low, or at the wrong tilt. We need a principled way to pick the
+single best line — not by eye, but by a definition we can compute and optimise. That
+definition is the heart of the chapter.
+
+## 2. The model
+
+A line is described by two numbers, so the model has exactly two parameters:
+
+$$\hat y = w x + b.$$
+
+Here $w$ is the **slope** (how much $\hat y$ rises per unit of $x$) and $b$ is the
+**intercept** (the value of $\hat y$ when $x = 0$); the hat on $\hat y$ marks it as a
+*prediction*, not the true observed value. Choosing the model means committing to
+this straight-line shape; fitting it means finding the particular $w$ and $b$ that
+best match the data.
+
+<LineFit />
+
+Drag the handles to tilt and shift the line. Every position is a different choice of
+$(w, b)$ — a different model — and most of them fit the points badly. The question
+is which one fits *best*, and to answer it we must first measure how badly any given
+line fits, point by point.
+
+## 3. Residuals and the loss
+
+For each data point, the line makes a prediction $\hat y = w x + b$, and the true
+value $y$ usually differs from it. That gap, $y - \hat y$, is the **residual** — the
+miss, the orange stub in the widget above. A good line makes the residuals small
+across all the points; a bad line leaves big ones.
+
+To turn "small residuals" into a single number to minimise, we **square** each
+residual and average them — the **mean squared error** (MSE):
+
+$$\text{MSE} = \frac{1}{n}\sum_{i=1}^{n} (y_i - \hat y_i)^2 = \frac{1}{n}\sum_{i=1}^{n}\big(y_i - (w x_i + b)\big)^2.$$
+
+Squaring does two jobs: it makes every residual positive (so misses above and below
+the line both count, and cannot cancel out), and it punishes big misses far more than
+small ones (a residual of 2 contributes four times as much as a residual of 1), which
+makes the line lean toward avoiding large errors. This MSE is the **loss** — the
+scorekeeper from Chapter 1 — and fitting the model means finding the $(w, b)$ that
+make it as small as possible.
+
+## 4. Least squares
+
+So the goal is precise: among all lines, find the one that minimises the mean squared
+error. This is the **least-squares** criterion, and it has a beautiful geometric
+reading.
+
+<LeastSquares />
+
+Draw each residual as an actual square — side equal to the size of the miss, so its
+*area* is the residual squared — and the total orange area is the sum of squared
+errors, the loss itself. Tilt the line and the squares swell and shrink. The best-fit
+line is, quite literally, the one that makes the **total area of the squares as small
+as it can be**. That is the entire meaning of "least squares": least total squared
+area. And because the loss is a smooth, bowl-shaped function of $w$ and $b$ — squaring
+makes it a clean parabola in each parameter — it has exactly one minimum, with no
+local traps to worry about.
+
+## 5. The closed form: the normal equations
+
+Here is what makes linear regression special, even among the models in this book: its
+minimum can be found by a *formula*, with no iteration at all. Because the loss is
+quadratic in the parameters, its slope with respect to $w$ and $b$ is linear, and
+setting those slopes to zero — the flat-tangent condition for a minimum from Chapter 3 —
+gives a system of linear equations, the **normal equations**, that we can solve
+directly.
+
+Writing the data as a matrix $X$ (one row per example, a column of 1s for the
+intercept) and the targets as a vector $y$, the least-squares solution is
+
+$$w = (X^\top X)^{-1} X^\top y.$$
+
+You do not need to memorise this, only to register what it means: **the best line is
+available in closed form** — one matrix computation, exact, no guessing, no steps.
+This is a rare luxury. It exists because the model is linear and the loss is squared
+error, a combination so clean it solves itself. Hold onto how special that is,
+because §9 is about everything losing it.
+
+## 6. Multiple features
+
+Nothing confines linear regression to a single input. With several features —
+predicting a house price from its area, age, *and* number of bedrooms — the model
+becomes
+
+$$\hat y = w_1 x_1 + w_2 x_2 + \dots + w_d x_d + b = w \cdot x + b,$$
+
+the weighted sum, the dot product of Chapter 3, with one weight per feature. With two
+features the "line" becomes a *plane* tilted through three-dimensional space; with
+more, a flat **hyperplane** in a space we cannot picture but the algebra handles
+without complaint. Remarkably, the same closed-form normal equations solve it — the
+formula $w = (X^\top X)^{-1} X^\top y$ does not care how many columns $X$ has. One
+matrix solve fits a model in any number of dimensions.
+
+## 7. How good is the fit?
+
+A fitted line always exists, but is it any good? The standard score is **R²**, the
+*coefficient of determination*: the fraction of the variation in $y$ that the model
+explains.
+
+<ResidualsR2 />
+
+R² runs from 1 (a perfect fit — the line passes through every point) down to 0 (the
+line is no better than just guessing the mean of $y$ every time), and it can even go
+negative for a truly terrible fit. Turn up the noise and watch it fall: the same
+straight-line model explains less and less as the data scatters further from any line,
+because more of the variation is simply random and unexplainable. The residual plot on
+the right is the other half of the diagnosis — for a good linear fit it should look
+like *structureless noise* scattered around zero. If you see a pattern there — a curve,
+a fan, a trend — the straight line has missed something systematic, and a different
+model is called for.
+
+## 8. Reading the coefficients
+
+Beyond prediction, linear regression is prized because its parameters are
+*interpretable*. The weight $w_j$ on a feature is the predicted change in $y$ for a
+one-unit increase in that feature, *holding the others fixed* — "each extra bedroom
+adds about £15,000, all else equal". This transparency is a real strength; few models
+let you read off the influence of each input so directly.
+
+But two cautions, both important. First, the units matter: a weight looks small or
+large depending on the feature's scale, so to compare importances you must standardise
+the features first (Chapter 17). Second, and graver: **a coefficient is an
+association, not a cause.** That ice-cream sales predict drownings does not mean ice
+cream drowns people — both are driven by hot weather. Regression finds what moves
+*with* what; it cannot, on its own, tell you what moves *because* of what. Reading
+causation into regression coefficients is one of the most common and costly mistakes
+in all of data analysis.
+
+## 9. When the formula runs out
+
+We have a model fit by an exact formula — so why is there a whole book ahead? Because
+the closed form is a happy accident of *this specific combination*: a linear model and
+a squared-error loss. Change either and the formula evaporates. Swap the loss (to
+classify, Chapter 7 needs a different one), or swap the model (for the curves of trees
+and the layers of neural networks), and there is no neat equation that hands you the
+minimum. Even for linear regression with millions of features, computing $(X^\top
+X)^{-1}$ becomes too expensive to do directly.
+
+So for almost everything else in this book, we cannot solve for the best parameters;
+we have to **search** for them — start somewhere, measure which way is downhill, take
+a step, and repeat, sliding down the loss surface toward its minimum. That search is
+**gradient descent**, the single most important algorithm in machine learning, and it
+is the subject of the very next chapter. Linear regression is where the loss-minimising
+view of learning is born; gradient descent is how it is carried to every model that
+has no formula of its own.
+
+## 10. Implement it yourself
+
+The closed-form least-squares fit — the normal equations — in a few lines, and a check
+that it matches a built-in solver.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+x = np.linspace(0, 10, 30)
+y = 0.8 * x + 1.8 + rng.normal(0, 0.9, 30)      # a line, plus noise
+
+# Build the design matrix X: a column of 1s (for the intercept) and a column of x.
+X = np.column_stack([np.ones_like(x), x])
+
+# Normal equations: w = (X^T X)^{-1} X^T y  — the exact least-squares solution.
+w = np.linalg.solve(X.T @ X, X.T @ y)
+print(f"intercept b = {w[0]:.3f},  slope w = {w[1]:.3f}")
+
+# It matches numpy's built-in fit exactly:
+print("polyfit gives:", np.polyfit(x, y, 1).round(3), "(slope, intercept)")
+
+# R^2: the fraction of variance explained.
+yhat = X @ w
+r2 = 1 - np.sum((y - yhat) ** 2) / np.sum((y - y.mean()) ** 2)
+print(f"R^2 = {r2:.3f}")
+`}
+/>
+
+One linear solve gives the exact best-fit line — no iteration, no learning rate, no
+guessing — because the squared-error loss on a linear model has a closed-form minimum.
+Savour it: linear regression is the last model in this book that solves itself. From
+Chapter 6 onward, we descend.
+
+## 11. Problems
+
+### Problem 1 — Residuals, squares, and R²
+
+A conceptual question. (a) Why does the loss square the residuals rather than just
+adding their absolute values? (b) What does an R² of 0 mean, and what does an R² of 1
+mean? (c) After fitting, you plot the residuals against $x$ and see a clear U-shaped
+pattern. What does that tell you, and what would you do?
+
+<details>
+  <summary>Show solution</summary>
+
+**(a)** Squaring makes every residual positive, so misses above and below the line
+both count and cannot cancel out; and it penalises large misses disproportionately (a
+miss of 2 counts four times a miss of 1), pulling the line toward avoiding big errors.
+Crucially, squaring also makes the loss a smooth quadratic, which is what gives it a
+single minimum solvable in closed form — absolute value has a kink that does not.
+
+**(b)** R² = 1 means a perfect fit: the line passes exactly through every point and
+explains all the variation in $y$. R² = 0 means the line explains none of it — it does
+no better than ignoring $x$ and always predicting the mean of $y$.
+
+**(c)** A systematic pattern in the residuals means the straight line has missed real
+structure — here, a U-shape says the true relationship curves, and the line is
+under- then over- then under-predicting. The fix is a more flexible model: add a
+quadratic term (a polynomial feature, Chapter 17) or use a model that can bend. Good
+residuals look like patternless noise.
+
+</details>
+
+### Problem 2 — Fit a line and predict
+
+Fit a least-squares line to data and use it.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+# area (x, in 100s of sq ft) and price (y, in 1000s) for some houses
+x = np.array([8, 12, 15, 18, 22, 26, 30.0])
+y = np.array([180, 240, 290, 330, 410, 470, 540.0])
+
+# Your code:
+#   1. fit a line with np.polyfit(x, y, 1) -> slope, intercept
+#   2. print them, and say in words what the slope means
+#   3. predict the price of a 20 (i.e. 2000 sq ft) house
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+x = np.array([8, 12, 15, 18, 22, 26, 30.0])
+y = np.array([180, 240, 290, 330, 410, 470, 540.0])
+
+slope, intercept = np.polyfit(x, y, 1)
+print(f"price ~= {slope:.1f} * area + {intercept:.1f}")
+print(f"each extra 100 sq ft adds about {slope:.0f} thousand")
+print(f"predicted price for area=20: {slope*20 + intercept:.0f} thousand")
+`}
+/>
+
+The slope (around 15) is the model's claim that each extra 100 square feet adds roughly
+£15,000 to the price — the interpretable coefficient of §8. The prediction for an area
+of 20 is the line evaluated there, a value generalised from the trend rather than
+looked up.
+
+</details>
+
+### Problem 3 — The normal equations from scratch
+
+Implement the closed-form solution and confirm it matches a solver.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(1)
+x = np.linspace(0, 10, 40)
+y = 1.3 * x - 2.0 + rng.normal(0, 1.2, 40)
+
+# Your code:
+#   1. build the design matrix X with a column of ones and a column of x
+#   2. solve the normal equations w = (X^T X)^{-1} X^T y  (use np.linalg.solve)
+#   3. print intercept and slope; check against np.polyfit(x, y, 1)
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(1)
+x = np.linspace(0, 10, 40)
+y = 1.3 * x - 2.0 + rng.normal(0, 1.2, 40)
+
+X = np.column_stack([np.ones_like(x), x])
+w = np.linalg.solve(X.T @ X, X.T @ y)        # normal equations
+print(f"closed form: intercept {w[0]:.3f}, slope {w[1]:.3f}")
+print("polyfit:     ", np.polyfit(x, y, 1).round(3), "(slope, intercept)")
+`}
+/>
+
+The recovered slope (~1.3) and intercept (~−2) match `polyfit` to several decimals,
+because they are computing the same thing — `polyfit` solves the normal equations under
+the hood. Using `np.linalg.solve` rather than literally inverting $X^\top X$ is the
+numerically sound way to do it, but the formula is exactly $w = (X^\top X)^{-1} X^\top
+y$.
+
+</details>
+
+### Problem 4 — More than one feature
+
+Fit a plane: predict from two features at once.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(2)
+n = 60
+area = rng.uniform(8, 30, n)
+age = rng.uniform(0, 40, n)
+price = 15 * area - 2 * age + 50 + rng.normal(0, 10, n)   # true relationship
+
+# Your code:
+#   1. build X with columns [1, area, age]
+#   2. solve the normal equations for the three weights [intercept, w_area, w_age]
+#   3. print them — do they recover ~50, ~15, ~-2?
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(2)
+n = 60
+area = rng.uniform(8, 30, n)
+age = rng.uniform(0, 40, n)
+price = 15 * area - 2 * age + 50 + rng.normal(0, 10, n)
+
+X = np.column_stack([np.ones(n), area, age])
+w = np.linalg.solve(X.T @ X, X.T @ price)
+print(f"intercept {w[0]:.1f},  w_area {w[1]:.2f},  w_age {w[2]:.2f}")
+print("(true values: 50, 15, -2)")
+`}
+/>
+
+The same normal equations, with a wider $X$, recover all three weights at once: a
+positive coefficient on area, a negative one on age, and the right intercept. Each
+weight is the effect of its feature *holding the other fixed* — the multiple-regression
+reading — and the closed form scales to any number of features without changing form.
+
+</details>
+
+### Problem 5 — When the line is wrong
+
+The capstone caution. Fit a line to data that genuinely curves, and read the warning
+signs.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+x = np.linspace(-3, 3, 50)
+y = x**2 + rng.normal(0, 1.0, 50)        # a parabola, not a line!
+
+# Your code:
+#   1. fit a straight line to (x, y) and compute its R^2
+#   2. look at the residuals (y - line): do they show a pattern?
+#   3. then fit a degree-2 polynomial and compare R^2
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+x = np.linspace(-3, 3, 50)
+y = x**2 + rng.normal(0, 1.0, 50)
+
+def r2(p):
+    yhat = np.polyval(p, x)
+    return 1 - np.sum((y - yhat)**2) / np.sum((y - y.mean())**2)
+
+p1 = np.polyfit(x, y, 1)
+p2 = np.polyfit(x, y, 2)
+print(f"line  R^2 = {r2(p1):.3f}")
+print(f"quadratic R^2 = {r2(p2):.3f}")
+
+resid = y - np.polyval(p1, x)
+print("line residuals (left/middle/right means):",
+      round(resid[:16].mean(), 1), round(resid[16:34].mean(), 1), round(resid[34:].mean(), 1))
+`}
+/>
+
+The straight line has a dismal R² and residuals that are positive at the ends and
+negative in the middle — a clear U-shaped pattern betraying that the truth curves. The
+degree-2 fit, which can bend, has a far higher R² and patternless residuals. Linear
+regression is only as good as the assumption that the relationship *is* linear; when it
+is not, the residuals will tell you, and a more flexible model — built from the very
+features and methods of the rest of this book — is the answer.
+
+</details>
+
+---
+
+You have now seen a model fit by minimising a loss, and met the one case where that
+minimisation has a clean, closed-form answer. Almost nothing else in machine learning
+is so obliging. The line of best fit is where the entire loss-minimising view of
+learning begins — and the question it leaves open, *what do we do when there is no
+formula?*, is the doorway to everything that follows.
+
+*Next: Chapter 6 — Gradient descent.* The optimisation engine behind nearly every
+model in this book: when you cannot solve for the best parameters, you walk toward them,
+one downhill step at a time.
