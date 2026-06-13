@@ -1,0 +1,447 @@
+import TrainTestSplit from '@/components/TrainTestSplit'
+import OverfitDegree from '@/components/OverfitDegree'
+import ComplexityCurve from '@/components/ComplexityCurve'
+import PyodideEditor from '@/components/PyodideEditor'
+
+export const metadata = {
+  title: 'The ML workflow',
+  description:
+    'How to build a model and trust it: the train/test split, underfitting and overfitting, the bias–variance trade-off, and why the test set is sacred — with three interactive visualisations, runnable Python, and five problems.',
+  openGraph: {
+    title: 'The ML workflow',
+    description:
+      'An interactive walk-through of the machine-learning workflow — train/test splits, overfitting, bias and variance, and validation.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 2 · Part I — Foundations
+</p>
+
+# The ML workflow
+
+*How to actually build a model and trust it — by holding data back, watching for
+overfitting, and never, ever fooling yourself.*
+
+A student who has seen last year's exam can ace it without understanding a thing —
+they have simply memorised the answers. Hand them this year's exam, with different
+questions, and the bluff collapses. The only honest test of understanding is
+performance on questions they have *not* seen before. Machine learning has exactly
+this problem, and exactly this solution. A model that has memorised its training
+data will report glowing numbers on that data and fail the moment it meets anything
+new — so we must always set aside a fresh "exam" the model never studied, and judge
+it only on that.
+
+This is the heart of the machine-learning *workflow*: the disciplined process of
+turning data into a model you can actually rely on. It is less glamorous than the
+algorithms, and far more important. A mediocre model evaluated honestly is worth
+more than a brilliant one evaluated by self-deception, because only the first tells
+you the truth about how it will behave in the world. Most failures of applied
+machine learning are not failures of the model; they are failures of the workflow —
+someone fooled themselves.
+
+By the end of this chapter you will know how to split your data so the evaluation
+is honest, how to recognise the twin failures of underfitting and overfitting, the
+bias–variance trade-off that underlies them, and the iron rule that protects you
+from self-deception. These ideas govern every model in the rest of the book.
+
+## 1. The goal, restated sharply
+
+Chapter 1 said the goal is to *generalise* — to do well on unseen data. The
+workflow is how we hold ourselves to that goal instead of quietly drifting toward
+the easier, useless one of doing well on the data we already have.
+
+The danger is subtle because it does not feel like cheating. You fit a model, you
+measure its error on your data, the error is low, you are pleased. But that number
+answers the wrong question. It tells you how well the model fits the examples it was
+trained on — which, for a flexible enough model, can always be made perfect and
+means nothing. The question you actually care about is how well it will predict
+*tomorrow's* data, which by definition you do not have yet. The entire workflow is a
+trick for estimating that future performance honestly, today.
+
+## 2. The train/test split
+
+The trick is simple: before you do anything else, take your data and **split it in
+two**. The larger part, the **training set** (typically 70–80%), is what the model
+learns from. The smaller part, the **test set** (the remaining 20–30%), you lock in
+a drawer and do not look at. You fit the model on the training set alone, and then —
+once, at the very end — you measure its error on the test set.
+
+Because the model never saw the test points during fitting, its error on them is a
+fair stand-in for its error on genuinely new data. The test set is a simulated
+future: data from the same source that the model has not been allowed to study. The
+split must be done *first*, before any fitting or even any inspection, and the test
+set must stay untouched, or the simulation is contaminated and the estimate lies.
+
+## 3. Fitting on the training set
+
+With the split made, fitting proceeds exactly as Chapter 1 described — a model, a
+loss, an optimiser — but using *only* the training data. The model tunes its
+parameters to make its predictions match the training examples, driving the
+training loss down. Nothing about the test set enters this process; the test points
+do not influence a single parameter. They are waiting in the drawer.
+
+This separation is what makes the test error meaningful. If the test data had leaked
+into training — even indirectly, even by your having peeked at it to choose a model —
+then the model would have an unfair advantage on it, and its test error would
+flatter it. The whole value of the held-out set is that it is *held out*.
+
+## 4. The test set is the future
+
+Now collect the model's verdict.
+
+<TrainTestSplit />
+
+The filled points trained the model; the hollow points were held back, and the
+model is judged on how far its curve lands from them — its **test error**. When the
+test error is close to the training error, as it is here, the model has genuinely
+captured the trend and you can expect it to behave on new data much as it does on
+this test set. When the test error is far worse than the training error, something
+has gone wrong — and the most common something is overfitting.
+
+## 5. Underfitting and overfitting
+
+There are two ways to fail, and they pull in opposite directions. Drag the model's
+complexity through its range and watch both appear.
+
+<OverfitDegree />
+
+**Underfitting** is failure by simplicity: the model is too rigid to capture the
+real pattern, so it does poorly on *both* the training and the test data. The fix
+is more flexibility. **Overfitting** is failure by complexity: the model is so
+flexible that it fits not only the underlying pattern but the random noise in the
+training points, threading through every one of them. Its training error drops
+toward zero — it looks brilliant on the data it studied — but it has learned
+spurious wiggles that do not generalise, so its test error climbs. The fix is less
+flexibility (or more data, or regularisation, Chapter 9). The art is finding the
+balance: complex enough to capture the signal, simple enough to ignore the noise.
+
+## 6. The complexity U
+
+Plot the two errors against model complexity and the whole story compresses into one
+picture — arguably the most important figure in the book.
+
+<ComplexityCurve />
+
+Training error falls monotonically: more complexity can only fit the training data
+better, all the way to zero. Test error traces a **U** — high on the left
+(underfitting), falling to a minimum, then rising on the right (overfitting). The
+bottom of that U is the model you want, and its location is a property of your data
+and your model that you discover, not decree. Every act of model selection — choosing
+a polynomial degree, a tree depth, the number of hidden units — is a search for the
+bottom of this curve, guided always by held-out error and never by training error,
+which would happily march you off the overfitting cliff.
+
+## 7. Bias and variance, plainly
+
+The two failures have names that recur throughout the book. **Bias** is error from
+wrong assumptions — a model too simple to represent the truth, like a straight line
+forced onto a curve. High bias is underfitting. **Variance** is error from
+sensitivity to the particular training sample — a model so flexible that a different
+draw of training points would give a wildly different fit. High variance is
+overfitting.
+
+The two trade off. Simple models have high bias and low variance: they miss the
+pattern but are stable. Complex models have low bias and high variance: they can
+capture anything but swing around with the noise. Total error is, loosely, bias plus
+variance, and the U-curve is that sum — bias dominating on the left, variance on the
+right, their balance at the bottom. The **bias–variance trade-off** is just the
+complexity U, seen through the lens of *why* each side fails. Reducing one usually
+raises the other; the goal is the sweet spot that minimises their sum.
+
+## 8. The validation set
+
+There is a catch in §6 we glossed over. If you use the *test* set to choose the best
+complexity — fitting many models and keeping the one with the lowest test error —
+then you have used the test set to make a decision, and it is no longer untouched.
+Its error will flatter the choice you tuned it to. You have leaked.
+
+The standard fix is a *third* split: carve a **validation set** out of the training
+data. Fit candidate models on the training set, compare them on the validation set,
+choose the best, and only *then* — having committed — measure the chosen model once
+on the still-pristine test set for an honest final number. The validation set is for
+making decisions; the test set is for the one final, unbiased verdict. When data is
+scarce, **cross-validation** reuses the data more cleverly by rotating which part
+serves as validation — the subject of Chapter 11. The principle is constant: the
+data you use to *choose* a model cannot also be the data you use to *judge* it.
+
+## 9. Never touch the test set twice
+
+Everything above reduces to one rule, worth burning into memory: **the test set is
+sacred — look at it exactly once, at the very end.** Every peek costs you. Tune a
+hyperparameter against it, and you have fit to it. Run twenty model variants and
+report the best test score, and you have fit to it. Even glancing at it to "get a
+feel for the data" leaks a little information into your choices. Each interaction
+quietly inflates your estimate and erodes its honesty.
+
+This is the discipline that separates trustworthy machine learning from the kind that
+looks wonderful in a report and falls apart in production. It is not about the
+algorithm at all; it is about not deceiving yourself. Hold the line, and your numbers
+mean something.
+
+## 10. Doing it yourself
+
+Split, fit on train, evaluate on test, and watch the U emerge across complexity.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+n = 40
+x = np.linspace(-1, 1, n)
+true = lambda x: np.sin(2.2 * x)
+y = true(x) + rng.normal(0, 0.22, n)
+
+# split: every 4th point is test, the rest train (shuffle first in real life)
+is_test = (np.arange(n) % 4 == 0)
+xtr, ytr = x[~is_test], y[~is_test]
+xte, yte = x[is_test], y[is_test]
+
+def mse(p, xs, ys):
+    return np.mean((np.polyval(p, xs) - ys) ** 2)
+
+print(f"{'degree':>6} {'train':>8} {'test':>8}")
+for d in [1, 3, 6, 9, 12]:
+    p = np.polyfit(xtr, ytr, d)          # fit on TRAIN only
+    print(f"{d:>6} {mse(p, xtr, ytr):>8.3f} {mse(p, xte, yte):>8.3f}")
+`}
+/>
+
+Training error falls all the way down as the degree rises; test error bottoms out in
+the middle and then climbs as the high-degree fits start memorising noise. The model
+you would actually ship is the one at the bottom of that test column — never the one
+with the lowest training error.
+
+## 11. Problems
+
+### Problem 1 — Why hold data back?
+
+A conceptual question. (a) Why is a model's error on its own training data a poor
+estimate of how it will perform in the future? (b) What exactly does the test set
+estimate, and why must it be split off *before* fitting? (c) A colleague reports
+"99% accuracy" but admits they chose their model by trying many and keeping the one
+with the best score on the test set. Why is their 99% not trustworthy?
+
+<details>
+  <summary>Show solution</summary>
+
+**(a)** A sufficiently flexible model can fit its training data arbitrarily well —
+even perfectly — by memorising it, including the noise, which tells you nothing
+about new data. Training error measures fit to examples already seen; it can be
+driven to zero without any genuine learning, so it systematically *overestimates*
+future performance.
+
+**(b)** The test set estimates the model's error on *unseen* data drawn from the
+same distribution — its expected real-world performance. It must be split off before
+fitting (and never used during it) so the model has no chance to adapt to those
+points; only then is its error on them an unbiased stand-in for error on the future.
+
+**(c)** By selecting the model that scored best on the test set, they used the test
+set to make a decision — they tuned to it. The reported 99% is the maximum over many
+tries, which is optimistically biased: some of that score is luck that happened to
+favour the chosen model on those particular test points. An honest estimate needs a
+*separate* validation set for the choosing and a pristine test set for the single
+final measurement.
+
+</details>
+
+### Problem 2 — Make the split, evaluate honestly
+
+Split data into train and test, fit on train only, and report both errors.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(1)
+n = 50
+x = np.linspace(-1, 1, n)
+y = np.sin(2.2 * x) + rng.normal(0, 0.22, n)
+
+# Your code:
+#   1. randomly choose 20% of the indices as the test set, the rest as train
+#   2. fit a degree-4 polynomial on the TRAIN points only
+#   3. print the mean squared error on train and on test separately
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(1)
+n = 50
+x = np.linspace(-1, 1, n)
+y = np.sin(2.2 * x) + rng.normal(0, 0.22, n)
+
+idx = rng.permutation(n)
+n_test = n // 5
+test_idx, train_idx = idx[:n_test], idx[n_test:]
+
+p = np.polyfit(x[train_idx], y[train_idx], 4)        # fit on TRAIN only
+def mse(i): return np.mean((np.polyval(p, x[i]) - y[i]) ** 2)
+print(f"train error: {mse(train_idx):.3f}")
+print(f"test  error: {mse(test_idx):.3f}")
+`}
+/>
+
+A random split (here via a permutation) guards against any ordering in the data; the
+degree-4 fit uses only the training indices; and the two errors are reported
+separately. With a sensible degree they are close — the sign of a model that
+generalises rather than memorises.
+
+</details>
+
+### Problem 3 — Find the bottom of the U
+
+Sweep model complexity and locate the degree that minimises held-out error.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def make(seed):
+    rng = np.random.default_rng(seed)
+    x = np.linspace(-1, 1, 40)
+    return x, np.sin(2.2 * x) + rng.normal(0, 0.22, 40)
+
+# Your code: for each degree 1..10, average the train and test MSE over several
+# noise realisations (refit each time), and print the degree with the lowest
+# average TEST error — the bottom of the U.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def make(seed):
+    rng = np.random.default_rng(seed)
+    x = np.linspace(-1, 1, 40)
+    return x, np.sin(2.2 * x) + rng.normal(0, 0.22, 40)
+
+print(f"{'deg':>3} {'train':>8} {'test':>8}")
+best_d, best_te = 0, 1e9
+for d in range(1, 11):
+    tr = te = 0.0
+    for s in range(12):
+        x, y = make(s)
+        m = (np.arange(40) % 4 == 0)
+        p = np.polyfit(x[~m], y[~m], d)
+        tr += np.mean((np.polyval(p, x[~m]) - y[~m]) ** 2)
+        te += np.mean((np.polyval(p, x[m]) - y[m]) ** 2)
+    tr, te = tr / 12, te / 12
+    print(f"{d:>3} {tr:>8.3f} {te:>8.3f}")
+    if te < best_te: best_te, best_d = te, d
+print("best degree (lowest test error):", best_d)
+`}
+/>
+
+Averaging over realisations smooths out the luck of any one split and reveals the U
+cleanly: training error slides down forever, test error dips and then rises, and the
+best degree sits at the bottom of the dip. That degree — chosen by *held-out* error —
+is the one that balances bias against variance.
+
+</details>
+
+### Problem 4 — Bias or variance?
+
+A conceptual question. For each symptom, say whether the model most likely suffers
+from high bias or high variance, and what you would change: (a) train error and test
+error are both high and about equal; (b) train error is near zero but test error is
+large; (c) the fitted curve changes drastically when you refit on a slightly
+different sample of the data.
+
+<details>
+  <summary>Show solution</summary>
+
+**(a) High bias** (underfitting). Both errors are high because the model is too
+simple to capture the pattern even on the training data. Increase complexity — a
+higher-degree model, more features, a more flexible family.
+
+**(b) High variance** (overfitting). Near-zero training error with large test error
+is the signature of memorising the training noise. Decrease complexity, add
+regularisation (Chapter 9), or get more training data.
+
+**(c) High variance.** Instability across different training samples is the
+definition of variance — the model is keying on the particular noise of whichever
+sample it saw. The same cures as (b): simplify, regularise, or gather more data so the
+noise averages out.
+
+</details>
+
+### Problem 5 — The leak
+
+The capstone. Show, concretely, how using the test set to choose a model inflates the
+reported score — and why a separate validation set fixes it.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(3)
+x = np.linspace(-1, 1, 60)
+y = np.sin(2.2 * x) + rng.normal(0, 0.25, 60)
+idx = rng.permutation(60)
+train, valid, test = idx[:36], idx[36:48], idx[48:]   # 36 / 12 / 12
+
+# Provided helper:
+def fit_and_err(d, fit_idx, eval_idx):
+    p = np.polyfit(x[fit_idx], y[fit_idx], d)
+    return np.mean((np.polyval(p, x[eval_idx]) - y[eval_idx]) ** 2)
+
+# Your code:
+#   LEAKY way: pick the degree (1..10) with the lowest error on TEST, then report
+#     that same TEST error as your result.
+#   HONEST way: pick the degree with the lowest error on VALIDATION, then report
+#     the TEST error of that chosen degree.
+#   Compare the two reported numbers.
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(3)
+x = np.linspace(-1, 1, 60)
+y = np.sin(2.2 * x) + rng.normal(0, 0.25, 60)
+idx = rng.permutation(60)
+train, valid, test = idx[:36], idx[36:48], idx[48:]
+
+def fit_and_err(d, fit_idx, eval_idx):
+    p = np.polyfit(x[fit_idx], y[fit_idx], d)
+    return np.mean((np.polyval(p, x[eval_idx]) - y[eval_idx]) ** 2)
+
+degrees = range(1, 11)
+# LEAKY: choose by test error, report test error
+d_leak = min(degrees, key=lambda d: fit_and_err(d, train, test))
+print(f"leaky : chose degree {d_leak} by test, reports test error "
+      f"{fit_and_err(d_leak, train, test):.3f}")
+
+# HONEST: choose by validation error, report test error of that choice
+d_honest = min(degrees, key=lambda d: fit_and_err(d, train, valid))
+print(f"honest: chose degree {d_honest} by validation, reports test error "
+      f"{fit_and_err(d_honest, train, test):.3f}")
+`}
+/>
+
+The leaky procedure reports a flatteringly low number, because it searched over
+degrees for the one that happened to do best on the test points — fitting to the test
+set's particular noise. The honest procedure chooses on the validation set and only
+*then* consults the test set, so its reported number is an unbiased estimate of
+future error, even if it is a touch higher. The honest number is the one that will
+hold up tomorrow.
+
+</details>
+
+---
+
+*Next: Chapter 3 — A mathematical toolkit.* Before the first real algorithms, a
+short, geometric tour of the only mathematics the book needs — vectors and dot
+products, slopes and gradients, and a little probability — each tagged to exactly
+where it pays off later.
