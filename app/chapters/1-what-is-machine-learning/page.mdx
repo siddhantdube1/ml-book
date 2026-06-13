@@ -1,0 +1,415 @@
+import LearnFromExamples from '@/components/LearnFromExamples'
+import SupervisedVsUnsupervised from '@/components/SupervisedVsUnsupervised'
+import PyodideEditor from '@/components/PyodideEditor'
+
+export const metadata = {
+  title: 'What is machine learning?',
+  description:
+    'Programming by example instead of by rule. The model–loss–optimiser triad, supervised vs unsupervised learning, and why generalisation is the whole point — with two interactive visualisations, runnable Python, and five problems.',
+  openGraph: {
+    title: 'What is machine learning?',
+    description:
+      'An interactive introduction to machine learning — learning rules from examples, the model/loss/optimiser triad, and supervised vs unsupervised learning.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 1 · Part I — Foundations
+</p>
+
+# What is machine learning?
+
+*Programming a computer not by telling it the rules, but by showing it examples
+and letting it find the rules itself.*
+
+Suppose you have to build a filter that catches spam email. The old way — the
+only way, for most of computing history — is to sit down and write the rules
+yourself: if the subject line shouts in capitals, add a point; if it contains
+"free money", add three; if the sender is in your address book, subtract two; flag
+anything over a threshold. You can get surprisingly far like this, and then you
+hit a wall. Spammers change their wording the moment your rules are public. Every
+new trick needs a new rule. The rulebook grows to thousands of lines, contradicts
+itself, and still misses the obvious. You are trying to write down, by hand, a
+definition of "spam" — and it turns out you do not actually have one.
+
+Machine learning takes the problem from the other end. Instead of writing the
+rules, you collect *examples* — a few thousand emails, each already marked spam or
+not — and hand them to a program that **figures out the rules on its own**. It
+notices, from the examples alone, which words and patterns tend to go with spam,
+and it builds its own internal scoring system, one you never wrote and could not
+easily write. Show it new tricks (by adding new labelled examples) and it adapts.
+You have stopped programming the computer with rules and started programming it
+with *data*.
+
+That inversion — learn the rules from examples rather than spell them out — is the
+whole of machine learning, and it is the idea this entire book unfolds. By the end
+of this chapter you will know the three pieces every learning system is made of,
+the two great kinds of learning, and the one thing that separates a model that has
+genuinely learned from one that has merely memorised.
+
+## 1. A program that learns
+
+It is worth being precise about what is new here, because "a program that learns"
+can sound mystical and is not. An ordinary program is a fixed recipe: the
+programmer specifies, step by step, how to turn an input into an output, and the
+computer follows the recipe exactly. A machine-learning program is a recipe with
+*blanks in it* — adjustable numbers, called **parameters** — together with a
+procedure for filling in those blanks from data. You supply the examples; the
+procedure tunes the parameters until the program's outputs match the examples
+well; and the tuned program is your model.
+
+The classic definition, from Tom Mitchell, makes it crisp: a program *learns* if
+its performance at some task improves with experience. The task is "label emails
+as spam or not"; the experience is the thousands of already-labelled emails; the
+improvement is that, after seeing them, it labels new emails better than it did
+before. No rule about "free money" was ever typed. The rule was *learned*.
+
+This is the right tool exactly when the rules are too complex, too numerous, or
+too subtle to write by hand — recognising a face, translating a sentence,
+recommending a film, predicting a price. In all of these, examples are abundant
+and explicit rules are hopeless. That is the territory of machine learning.
+
+## 2. Rules versus examples
+
+Hold the two approaches side by side, because the contrast is the entire point.
+**Traditional programming** takes *rules* and *data* and produces *answers*: you
+write the spam rules, feed in an email, and out comes a verdict.
+**Machine learning** runs that backwards — it takes *data* and *answers* and
+produces *rules*: you feed in emails together with their correct verdicts, and out
+comes a rule-maker that can verdict the next email.
+
+The payoff is that you never have to articulate the rule. You only have to be able
+to *recognise* the right answer on examples you already have — which is almost
+always far easier. You cannot write down what makes a handwritten "7" a seven, but
+you can label ten thousand digits in an afternoon, and from those labels a model
+will learn a "definition" of seven more flexible than any you could compose. The
+cost is that you now need data, often a lot of it, and that the learned rule is
+only as good and as fair as the examples it was shown — a theme that will recur.
+
+## 3. The three ingredients
+
+Strip any machine-learning system down and you find the same three parts. Every
+chapter of this book is, underneath, a particular choice of these three.
+
+The **model** is the recipe-with-blanks: a family of functions with adjustable
+parameters, mapping inputs to outputs. A straight line $\hat y = w x + b$ is a
+model with two parameters; a neural network is a model with millions. Choosing a
+model means choosing the *shape* of the rules you will allow.
+
+The **loss** is the scorekeeper: a number that measures how wrong the model's
+outputs are on the examples. Low loss means the predictions match the data; high
+loss means they do not. The loss turns the vague goal "fit the examples well" into
+a precise quantity to be made small.
+
+The **optimiser** is the tuner: the procedure that adjusts the parameters to drive
+the loss down. It is what does the actual learning — turning the knobs, watching
+the loss, turning them again. Most of this book's optimisers are variations on one
+idea, gradient descent, which gets its own chapter next.
+
+Model, loss, optimiser. A choice of *what rules are allowed*, a measure of *how
+wrong*, and a method to *make it less wrong*. Keep this triad in mind and every
+algorithm to come will slot into place.
+
+## 4. Learning from examples
+
+Make it concrete. Here is a handful of points — the examples — produced by some
+underlying rule with a bit of random noise on top. A model (the teal curve) tries
+to recover the rule from the points alone.
+
+<LearnFromExamples />
+
+The slider controls the model's *flexibility* — how wiggly a curve it is allowed
+to be. Too rigid, and it cannot bend to follow the trend; it underfits. Too
+flexible, and it contorts to pass through every single point, faithfully
+reproducing the random noise as if it were signal; it overfits. The sweet spot in
+between recovers the smooth rule the points were drawn from. This is the central
+balancing act of the whole field, and you have just met it on the first model in
+the book: fit the examples, yes — but learn the *pattern*, not the noise. Chapter
+2 is devoted to it.
+
+## 5. Supervised learning
+
+The spam filter and the curve above share a structure: every example came with the
+*right answer* attached — this email is spam, this point has that height. Learning
+from labelled examples like this is called **supervised learning**, and it is the
+most common and most developed kind. The "supervision" is the answer key: a
+teacher who, for every training input, tells you the output it should have
+produced, so the loss can measure how far off the model was.
+
+Supervised problems come in two flavours, depending on what the answer is. When
+the answer is a *category* — spam or not, cat or dog, which of ten digits — it is
+**classification**. When the answer is a *number* — a price, a temperature, a
+probability — it is **regression**. Most of Parts II through V of this book is
+supervised learning: linear and logistic regression, trees, support vector
+machines, naive Bayes, neural networks. Different models, the same setup — examples
+with answers, a loss that scores the misses, an optimiser that shrinks them.
+
+## 6. Unsupervised learning
+
+But sometimes there is no answer key. You have a pile of data and no labels at all —
+just customers, or documents, or cells — and you want to find the structure hiding
+inside it. This is **unsupervised learning**, and it asks a genuinely different
+question.
+
+<SupervisedVsUnsupervised />
+
+Given the same scatter of points, the supervised task (left) is "here are the
+labelled groups; learn to assign new points correctly". The unsupervised task
+(right) is harder and stranger: "here are the points, with no labels whatsoever —
+find the groups yourself". With nothing but the positions to go on, an unsupervised
+algorithm discovers that the data falls into clusters, even though no one ever said
+so. Part VI of the book is unsupervised: clustering, which finds groups, and
+dimensionality reduction, which finds the few directions that matter. There is no
+teacher, only the structure the data already has.
+
+## 7. A word on reinforcement learning
+
+A third kind deserves a mention, though this book does not cover it. In
+**reinforcement learning**, an *agent* learns by acting in an environment and
+receiving rewards or penalties — a program learning to play a game by playing it,
+a robot learning to walk by falling over. There is no fixed dataset of correct
+answers; the agent generates its own experience and learns from the consequences.
+It is the machinery behind game-playing systems and much of robotics, and it
+shares this book's DNA — a model, a notion of "good", an optimiser — arranged for
+learning from trial and error rather than a labelled set. We note it and move on.
+
+## 8. Generalisation is the whole point
+
+Here is the idea that separates machine learning from mere curve-fitting, and the
+one most worth carrying through every later chapter. The goal is **not** to do well
+on the examples you trained on. A lookup table does perfectly on those — it has
+them memorised — and is useless on anything else. The goal is to do well on data
+you have *never seen*: to **generalise** from the training examples to the future.
+
+This is why the overfitting in §4 is a failure even though the wiggly curve passes
+through every training point perfectly. It nailed the examples and learned nothing
+transferable — it memorised the noise. A model that has genuinely learned captures
+the underlying pattern, so it predicts well on new, unseen inputs. Everything in
+this book — the losses, the regularisation, the train/test splits, the
+cross-validation — is ultimately machinery in service of generalisation. Keep
+asking, of every model: *would this work on data it has not seen?* That question is
+the soul of the subject.
+
+## 9. The shape of the whole book
+
+With those ideas in hand, the rest of the book is a tour, and a surprisingly
+unified one. Each chapter introduces a model — a different family of rules — but
+the *frame* never changes: a model with parameters, a loss that scores it, an
+optimiser that fits it, and the relentless question of whether it generalises.
+Linear regression and a deep neural network look nothing alike, yet both are a
+model fit to data by minimising a loss; the difference is only in the shape of the
+rules and the way the loss is driven down.
+
+So you are not about to memorise twenty unrelated algorithms. You are about to see
+one idea — learn the rules from examples — dressed in twenty costumes, each suited
+to a different kind of data and a different kind of question. The costumes are
+worth knowing well. But the body underneath is always the same three pieces, and
+once you can see them, the whole field comes into focus.
+
+## 10. Your first taste of code
+
+Machine learning in four lines: take some example points, and let the computer find
+the line that best fits them — its own little learned rule.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+# Examples: hours studied (x) and exam score (y) for nine students.
+x = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9.0])
+y = np.array([35, 38, 50, 49, 61, 64, 72, 78, 85.0])
+
+# "Learn the rule": find the straight line y = w*x + b that best fits.
+w, b = np.polyfit(x, y, deg=1)        # the optimiser, in one call
+print(f"learned rule:  score ~= {w:.1f} * hours + {b:.1f}")
+
+# Use the learned rule to predict a student who studied 10 hours:
+print(f"prediction for 10 hours of study: {w*10 + b:.0f}")
+`}
+/>
+
+No rule about study and scores was written down; `polyfit` found the best-fitting
+line from the nine examples alone — a model (the line), a loss (squared error,
+under the hood), and an optimiser (the fit), exactly the triad of §3. The rest of
+the book is this same move, made deliberate and made powerful.
+
+## 11. Problems
+
+### Problem 1 — Rules or examples?
+
+A conceptual question. For each task, say whether you would write explicit rules or
+learn from examples, and why: (a) converting a temperature from Celsius to
+Fahrenheit; (b) deciding whether a photo contains a cat; (c) computing sales tax on
+a purchase; (d) predicting tomorrow's electricity demand. What property separates
+the rule-based tasks from the learnable ones?
+
+<details>
+  <summary>Show solution</summary>
+
+**(a) Rules.** The conversion is an exact, known formula, $F = \tfrac{9}{5}C +
+32$. There is nothing to learn — writing the rule is trivial and exactly correct.
+**(b) Examples.** No one can write down rules that reliably distinguish cats from
+non-cats across all photos, but labelled images are abundant — a textbook
+supervised-learning task. **(c) Rules.** Sales tax is a fixed published rate times
+the price; an exact rule. **(d) Examples.** Demand depends on weather, day of week,
+holidays, and history in tangled ways with no clean formula, but years of recorded
+demand are available to learn from — supervised regression.
+
+The dividing property: **rule-based** tasks have a known, exact specification you
+can state directly; **learnable** tasks have no such specification you could write,
+but do have plentiful examples of the right answer. Use machine learning when you
+can *recognise* the right answer on examples but cannot *articulate* the rule.
+
+</details>
+
+### Problem 2 — Name the three ingredients
+
+A conceptual question. A weather service predicts tomorrow's high temperature from
+today's measurements. They use a formula with adjustable numbers, score each
+prediction by how many degrees it missed by, and repeatedly adjust the numbers to
+reduce the average miss over past days. Identify the **model**, the **loss**, and
+the **optimiser**. Which part is doing the "learning"?
+
+<details>
+  <summary>Show solution</summary>
+
+The **model** is the formula with adjustable numbers that maps today's
+measurements to a predicted temperature — the family of allowed rules. The
+**loss** is "how many degrees the prediction missed by", averaged over past days —
+the scorekeeper that turns "predict well" into a number to minimise (this is a
+regression task, so the loss is on a continuous error). The **optimiser** is the
+procedure that repeatedly adjusts the numbers to reduce that average miss.
+
+The **optimiser** does the learning: it is the part that changes the model's
+parameters in response to the data. The model defines what *can* be learned and the
+loss defines what "better" *means*, but it is the optimiser that actually improves
+the predictions with experience.
+
+</details>
+
+### Problem 3 — Supervised or unsupervised?
+
+A conceptual question. Classify each as supervised (and if so, classification or
+regression) or unsupervised: (a) grouping a shop's customers into segments by their
+buying habits, with no predefined segments; (b) predicting a house's sale price from
+its features; (c) flagging an email as spam or not; (d) reducing a 1000-column
+dataset to its 2 most important directions for plotting.
+
+<details>
+  <summary>Show solution</summary>
+
+**(a) Unsupervised** (clustering): there are no labels — the segments are to be
+*discovered* from the buying habits alone. **(b) Supervised, regression**: each
+training house has a known sale price (the label), and the price is a number. **(c)
+Supervised, classification**: each training email has a known spam/not-spam label,
+and the answer is a category. **(d) Unsupervised** (dimensionality reduction): no
+labels — the task is to find structure (the important directions) in the data
+itself, the subject of Chapter 20.
+
+The tell is simple: if the training examples come with the answer you want to
+predict, it is supervised (classification for categories, regression for numbers);
+if there are no answers and you are finding structure, it is unsupervised.
+
+</details>
+
+### Problem 4 — Fit your first model
+
+Learn a rule from examples: fit a straight line to data and use it to predict.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+# Examples: advertising spend (x, in thousands) and resulting sales (y).
+x = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0])
+y = np.array([2.1, 3.9, 6.2, 7.8, 10.1, 11.8, 14.2])
+
+# Your code:
+#   1. fit a line y = w*x + b with np.polyfit(x, y, 1)
+#   2. print the learned w and b
+#   3. predict sales for a spend of 8 (thousand)
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+x = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0])
+y = np.array([2.1, 3.9, 6.2, 7.8, 10.1, 11.8, 14.2])
+
+w, b = np.polyfit(x, y, 1)
+print(f"learned rule: sales ~= {w:.2f} * spend + {b:.2f}")
+print(f"prediction for spend = 8: {w*8 + b:.1f}")
+`}
+/>
+
+The data rises by roughly 2 in sales for every 1 in spend, and `polyfit` recovers a
+slope near 2 — a rule it learned from the seven examples, not one you wrote. The
+prediction for a spend of 8, a value never seen in the data, is the model
+*generalising* the pattern it found.
+
+</details>
+
+### Problem 5 — Memorising versus learning
+
+The capstone idea. Fit a flexible curve that passes through every training point
+perfectly, then watch it fail on new points — the difference between memorising and
+learning.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+x = np.linspace(0, 1, 8)
+true = lambda x: 2*x + 1
+y = true(x) + rng.normal(0, 0.15, 8)        # a line, plus noise
+
+# Your code:
+#   1. fit a degree-7 polynomial (np.polyfit(x, y, 7)) — it has enough freedom
+#      to pass through all 8 points exactly
+#   2. fit a degree-1 line too
+#   3. on NEW x points, compare each fit to the true line 2x+1 — which generalises?
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+x = np.linspace(0, 1, 8)
+true = lambda x: 2*x + 1
+y = true(x) + rng.normal(0, 0.15, 8)
+
+p7 = np.polyfit(x, y, 7)        # flexible — memorises
+p1 = np.polyfit(x, y, 1)        # simple — learns the trend
+
+# error on the TRAINING points
+print("train error  deg-7:", round(np.mean((np.polyval(p7, x) - y)**2), 4),
+      " deg-1:", round(np.mean((np.polyval(p1, x) - y)**2), 4))
+
+# error on NEW points, against the TRUE rule
+xn = np.linspace(0, 1, 50)
+print("new-point error deg-7:", round(np.mean((np.polyval(p7, xn) - true(xn))**2), 4),
+      " deg-1:", round(np.mean((np.polyval(p1, xn) - true(xn))**2), 4))
+`}
+/>
+
+The degree-7 polynomial has *lower* training error — it bends through the noisy
+points almost exactly — yet *higher* error on new points, because it learned the
+noise instead of the rule. The humble line has more training error but far less
+error on unseen data: it generalises. Doing well on the training examples is not the
+goal; doing well on the future is. That distinction is the reason the rest of this
+book exists.
+
+</details>
+
+---
+
+*Next: Chapter 2 — The ML workflow.* You now know what learning *is*; the next
+chapter is how you actually do it without fooling yourself — splitting your data,
+holding some back, and confronting overfitting head-on.
