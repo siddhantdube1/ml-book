@@ -13,7 +13,7 @@ const parts: { title: string; chapters: Chapter[] }[] = [
     chapters: [
       { num: 1, title: 'What is machine learning?', blurb: 'Framing, vocabulary, and the supervised / unsupervised divide.', href: '/chapters/1-what-is-machine-learning' },
       { num: 2, title: 'The ML workflow', blurb: 'Data, train and test, generalisation, and the spectre of overfitting.', href: '/chapters/2-ml-workflow' },
-      { num: 3, title: 'A mathematical toolkit', blurb: 'Linear algebra, calculus, and probability — only what you need, exactly when you need it.' },
+      { num: 3, title: 'A mathematical toolkit', blurb: 'Linear algebra, calculus, and probability — only what you need, exactly when you need it.', href: '/chapters/3-mathematical-toolkit' },
       { num: 4, title: 'Your first model: k-nearest neighbours', blurb: 'Building intuition for prediction without writing a single equation.' },
     ],
   },

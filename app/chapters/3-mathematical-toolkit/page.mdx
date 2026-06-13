@@ -1,0 +1,407 @@
+import DotProduct from '@/components/DotProduct'
+import SlopeAndGradient from '@/components/SlopeAndGradient'
+import DistributionExplorer from '@/components/DistributionExplorer'
+import PyodideEditor from '@/components/PyodideEditor'
+
+export const metadata = {
+  title: 'A mathematical toolkit',
+  description:
+    'The small amount of mathematics machine learning actually needs, taught geometrically: vectors and the dot product, the derivative and the gradient, and a little probability — each tagged to where it pays off later. Three interactive visualisations, runnable Python, and five problems.',
+  openGraph: {
+    title: 'A mathematical toolkit',
+    description:
+      'An interactive, geometric tour of the maths machine learning needs — dot products, gradients, and probability.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 3 · Part I — Foundations
+</p>
+
+# A mathematical toolkit
+
+*The small amount of mathematics the book actually uses — vectors, slopes, and a
+little probability — taught as pictures, and only when you need it.*
+
+Machine learning has a reputation for demanding heavy mathematics, and for the
+people inventing new algorithms it does. But for *understanding* the algorithms in
+this book — for seeing why they work and what they are doing — the required maths is
+modest, and almost all of it is geometric. Three small toolkits cover it: a little
+**linear algebra** (vectors and dot products, the language of the data and the
+models), a little **calculus** (slopes and gradients, the fuel of optimisation), and
+a little **probability** (distributions and Bayes' rule, the language of noise and
+belief).
+
+This chapter introduces just those pieces, each as a picture you can drag, and each
+tagged to the exact later chapter where it pays off. The goal is not rigour — there
+are no proofs here — but *fluency*: enough comfort with these few ideas that when
+$w \cdot x$ or $\nabla L$ or $P(y \mid x)$ appears later, it reads as a familiar
+shape rather than a wall of symbols. If you already know this material, skim it and
+move on; if you do not, ten minutes here will save you hours later.
+
+## 1. Why a little maths
+
+It is worth saying what each toolkit is *for*, so the abstraction stays anchored.
+**Linear algebra** is how we represent data and models. A single example — an email,
+a house, a patient — is a list of numbers, which we treat as a *vector*; a whole
+dataset is a stack of them, a *matrix*; and the simplest models combine a vector of
+inputs with a vector of weights using one operation, the dot product. **Calculus** is
+how models *learn*: the derivative measures how a small change in a parameter changes
+the loss, the gradient bundles those measurements into a direction, and following it
+downhill is how nearly every model in the book is trained. **Probability** is how we
+handle the fact that data is *noisy*: distributions describe the noise, expectation
+summarises it, and Bayes' rule updates beliefs in light of evidence.
+
+Three tools, three jobs: represent the data, train the model, handle the noise. Take
+them one at a time.
+
+## 2. Vectors
+
+A **vector** is just an ordered list of numbers — $[3, 1, 4]$ — and it wears two hats
+at once. Geometrically, it is a *point* in space (three numbers locate a point in
+three dimensions) or, equivalently, an *arrow* from the origin to that point. In
+machine learning, a vector is almost always one **example**: the features of a house
+$[\text{bedrooms}, \text{area}, \text{age}]$ are a point in a three-dimensional
+"house space", and a dataset of houses is a cloud of such points. Learning is then a
+geometric act — drawing a boundary through the cloud, finding its centre, measuring
+distances between points.
+
+Vectors add tip-to-tail and scale by stretching, but the operation that matters most
+for us combines two of them into a single number, and it has a beautiful geometric
+meaning.
+
+## 3. The dot product
+
+The **dot product** of two vectors multiplies them component-by-component and adds
+the results: $a \cdot b = a_1 b_1 + a_2 b_2 + \dots$. That definition looks dry; its
+meaning is not.
+
+<DotProduct />
+
+The dot product measures **how much two vectors point in the same direction**.
+Equivalently, $a \cdot b = |a|\,|b|\cos\theta$ — the lengths multiplied by the cosine
+of the angle between them — so it is large and positive when the vectors align, drops
+to exactly zero when they are perpendicular, and goes negative when they oppose. The
+grey shadow in the widget is the *projection* of one vector onto the other: the dot
+product is the length of that shadow, scaled.
+
+This is the single most important operation in the book, because **every linear model
+scores an input with a dot product.** The "weighted sum" $w \cdot x = w_1 x_1 + w_2
+x_2 + \dots$ at the heart of linear regression, logistic regression, the perceptron,
+and the support vector machine is exactly this: it asks how strongly the input $x$
+aligns with the learned weight vector $w$. Big positive dot product, strong "yes";
+big negative, strong "no". When you meet $w \cdot x$ later, picture this alignment.
+
+## 4. Matrices transform space
+
+Stack vectors into a grid and you have a **matrix**. Matrices do two jobs in the
+book. First, they *hold data*: a dataset of $n$ examples with $d$ features each is an
+$n \times d$ matrix, one row per example. Second, and more deeply, a matrix
+*transforms space*: multiplying a vector by a matrix rotates, stretches, shears, or
+projects it into a new set of coordinates. A whole layer of a neural network is one
+such transformation — a matrix multiply that reshapes the data — and the principal
+components of Chapter 20 are a matrix that rotates the data onto its most informative
+axes. You will not need to multiply matrices by hand here; you only need the mental
+image: **a matrix is a machine that reshapes the space the data lives in.** The dot
+product is the atom of that operation — each entry of a matrix–vector product is one
+dot product.
+
+## 5. The derivative
+
+Now calculus, which is how models learn. The **derivative** of a function $f$ at a
+point is the *slope* of its graph there — the rate at which the output changes as you
+nudge the input, written $f'(x)$ or $\frac{df}{dx}$.
+
+The slope carries two pieces of information we will lean on constantly: its **sign**
+says which way the function is heading (positive slope, rising as $x$ increases;
+negative, falling), and its **magnitude** says how steeply. Crucially, where a smooth
+function reaches a minimum or maximum, its slope is **zero** — the tangent is flat.
+That fact is the entire basis of optimisation: to minimise a loss, find where its
+slope is zero, and to get there, keep stepping in the downhill direction the slope
+points out. We see exactly that next.
+
+## 6. The gradient
+
+Most losses depend on many parameters, not one, so we need the multi-dimensional
+version of the slope: the **gradient**, written $\nabla f$.
+
+<SlopeAndGradient />
+
+On the left, the derivative in one dimension is the slope of the tangent line — drag
+the point and watch it tilt, going flat exactly at the hump and the dip. On the
+right, the gradient in two dimensions is an *arrow*: it collects the slope along each
+axis into a single direction that points **straight uphill** — perpendicular to the
+contour lines (the curves of constant height) and longest where the surface is
+steepest. Its defining property is that it points in the direction of fastest
+increase.
+
+Which is exactly what we want, run backwards. To *minimise* a loss, we compute its
+gradient and step in the **opposite** direction — straight downhill, the fastest way
+down — then recompute and step again. That is **gradient descent**, the optimiser
+behind nearly every model in this book, and the whole subject of Chapter 6. The
+gradient is the compass; the chapters after this one are about following it well.
+
+## 7. Randomness and distributions
+
+The third toolkit handles the fact that real data is noisy — two houses with
+identical features sell for different prices; the same measurement taken twice gives
+two readings. We model that scatter with **probability distributions**, which assign
+a likelihood to each possible value, and one distribution dominates the book.
+
+<DistributionExplorer />
+
+The **Gaussian** (or normal) distribution — the bell curve — is the default model of
+noise and uncertainty everywhere in machine learning, partly because sums of many
+small random effects tend toward it. Two numbers describe it completely: the **mean**
+$\mu$, the centre the values cluster around, and the **standard deviation** $\sigma$
+(or its square, the **variance** $\sigma^2$), the spread. Drag them and the bell
+slides and stretches over the samples it generated. When a later chapter says a
+dataset is "a line plus Gaussian noise", or that logistic regression and naive Bayes
+rest on likelihoods, this bell is what is meant.
+
+## 8. Mean, variance, and expectation
+
+Two summaries of a distribution recur so often they deserve a name in passing. The
+**mean** (or **expectation**, $\mathbb{E}[X]$) is the average value — the centre of
+mass of the distribution, the long-run average if you sampled forever. The
+**variance** is the average squared distance from the mean — a measure of spread, and
+the reason "minimise the squared error" is the natural loss for Gaussian noise. These
+two ideas quietly run through the book: the bias–variance trade-off of Chapter 2 is
+about them, the principal components of Chapter 20 are the directions of greatest
+variance, and the "expected loss" an optimiser minimises is an expectation. You do
+not need their formulas at your fingertips, only the intuition: **mean is where,
+variance is how spread.**
+
+## 9. Bayes' rule
+
+The last tool is for *updating beliefs* with evidence, and it is a single equation:
+
+$$P(A \mid B) = \frac{P(B \mid A)\,P(A)}{P(B)}.$$
+
+Read it as: the probability of $A$ *given that you observed* $B$ equals how well $A$
+predicts $B$, times how likely $A$ was to begin with, divided by how likely $B$ was
+overall. It is the mathematics of evidence — start with a prior belief, see some
+data, end with an updated belief — and it is the entire engine of the naive Bayes
+classifier (Chapter 16) and the probabilistic reading of logistic regression
+(Chapter 7). Its most famous lesson is that rare things stay rare even after
+suggestive evidence: a very accurate test for a very rare disease still yields mostly
+false alarms, because the prior $P(\text{disease})$ is so small. Bayes' rule is how
+you reason correctly about that, and we will use it in earnest later.
+
+## 10. Where each tool returns
+
+That is the whole toolkit, and every piece has a forwarding address. **Dot products**
+are the weighted sums of Chapters 5, 7, 8, 15, and 21. **Matrices** are the data
+itself, the transformations of neural-network layers (Chapter 21), and the rotation
+of PCA (Chapter 20). The **gradient** is the engine of Chapter 6 and, through it,
+nearly all of training, climaxing in backpropagation (Chapter 22). The **Gaussian**
+is the noise in every regression and the likelihood in Chapters 7 and 16; **mean and
+variance** underlie the bias–variance trade-off and PCA; and **Bayes' rule** powers
+naive Bayes and the probabilistic view of classification. None of it is introduced
+for its own sake. Each tool is a thing you will pick up and use, and now you know
+what it is for.
+
+## 11. Problems
+
+### Problem 1 — Dot products by hand and by meaning
+
+A short exercise. For $a = [3, 4]$ and several $b$: (a) compute $a \cdot b$ for
+$b = [4, -3]$, and say what the result tells you about the angle between them; (b)
+find a non-zero $b$ that is *perpendicular* to $a$; (c) of $b = [1, 1]$ and $b = [-1,
+-1]$, which aligns with $a$ and which opposes it, and how do you know from the dot
+product?
+
+<details>
+  <summary>Show solution</summary>
+
+**(a)** $a \cdot b = 3\cdot4 + 4\cdot(-3) = 12 - 12 = 0$. A zero dot product means the
+vectors are **perpendicular** ($\cos\theta = 0$, so $\theta = 90°$). Indeed $[3,4]$
+and $[4,-3]$ are at right angles.
+
+**(b)** Any scalar multiple of $[4, -3]$ works — e.g. $b = [4, -3]$ or $[-8, 6]$ —
+since $a \cdot [4,-3] = 0$. (Swap the components and negate one: $[3,4] \to
+[4,-3]$.)
+
+**(c)** $a \cdot [1,1] = 3 + 4 = 7 > 0$, so $[1,1]$ **aligns** with $a$ (acute angle).
+$a \cdot [-1,-1] = -3 - 4 = -7 < 0$, so $[-1,-1]$ **opposes** $a$ (obtuse angle). The
+*sign* of the dot product alone tells you which side of perpendicular two vectors are
+on — exactly how a linear classifier turns $w\cdot x$ into a yes/no decision.
+
+</details>
+
+### Problem 2 — A dot product is a weighted sum
+
+Connect the geometry to a model. A simple credit score weights three features —
+income, debt, and age — with weights $w = [0.5, -0.8, 0.1]$. Compute the score
+$w \cdot x$ for an applicant $x = [6, 2, 3]$, and explain what the signs of the
+weights mean.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+w = np.array([0.5, -0.8, 0.1])   # weights for [income, debt, age]
+x = np.array([6.0, 2.0, 3.0])    # an applicant
+
+# Your code:
+#   1. compute the score as the dot product w . x  (try w @ x)
+#   2. explain why a positive weight helps the score and a negative one hurts it
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+w = np.array([0.5, -0.8, 0.1])
+x = np.array([6.0, 2.0, 3.0])
+
+score = w @ x          # = 0.5*6 + (-0.8)*2 + 0.1*3
+print("score:", score)
+print("contributions:", w * x)   # each feature's push on the score
+`}
+/>
+
+The score is $0.5(6) - 0.8(2) + 0.1(3) = 3 - 1.6 + 0.3 = 1.7$. A **positive** weight
+(income, age) means more of that feature *raises* the score; a **negative** weight
+(debt) means more of it *lowers* the score. The dot product is just the sum of these
+signed contributions — and learning a linear model is nothing but finding the weight
+vector whose dot product with the inputs best separates the outcomes.
+
+</details>
+
+### Problem 3 — Compute a gradient
+
+The gradient points uphill; check it numerically. For $f(x, y) = x^2 + 3y^2$,
+compute the gradient at a point both analytically and by finite differences, and
+confirm they match.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def f(x, y):
+    return x**2 + 3*y**2
+
+# Your code:
+#   1. the analytic gradient is (df/dx, df/dy) = (2x, 6y); evaluate it at (1.5, 0.9)
+#   2. estimate it by finite differences: (f(x+h,y)-f(x-h,y))/(2h) for each axis
+#   3. confirm the two agree, and note the gradient points away from the minimum
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def f(x, y):
+    return x**2 + 3*y**2
+
+x, y, h = 1.5, 0.9, 1e-5
+analytic = np.array([2*x, 6*y])
+finite = np.array([(f(x+h, y) - f(x-h, y)) / (2*h),
+                   (f(x, y+h) - f(x, y-h)) / (2*h)])
+print("analytic gradient:", analytic.round(4))
+print("finite-difference:", finite.round(4))
+print("points away from the minimum (0,0):", analytic)   # both components have the sign of x, y
+`}
+/>
+
+Both give $(3, 5.4)$. The gradient points *uphill* — away from the minimum at the
+origin — so to descend the function you step the other way, in the direction of
+$-\nabla f$. The finite-difference check is exactly how you verify any gradient you
+compute by hand, the same trick used to validate backpropagation in Chapter 22.
+
+</details>
+
+### Problem 4 — Mean and variance of samples
+
+Draw samples from a Gaussian and confirm the sample mean and variance recover its
+parameters as the sample grows.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+mu, sigma = 2.0, 1.5
+
+# Your code:
+#   1. draw 50 samples from a normal with this mean and standard deviation
+#   2. print the sample mean and sample variance
+#   3. repeat with 50000 samples and watch them converge to mu and sigma**2
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+rng = np.random.default_rng(0)
+mu, sigma = 2.0, 1.5
+
+for n in [50, 50000]:
+    s = rng.normal(mu, sigma, n)
+    print(f"n={n:>6}: mean {s.mean():.3f} (-> {mu}),  variance {s.var():.3f} (-> {sigma**2})")
+`}
+/>
+
+With 50 samples the estimates are roughly right but noisy; with 50000 they lock onto
+$\mu = 2$ and $\sigma^2 = 2.25$. This is the law of large numbers in action — averages
+of more data converge on the true expectation — and it is the quiet justification for
+the entire enterprise: more examples give a better picture of the underlying
+distribution.
+
+</details>
+
+### Problem 5 — Bayes' rule and the rare disease
+
+The classic. A disease affects 1 in 1000 people. A test is 99% accurate in both
+directions. You test positive — what is the probability you actually have the
+disease?
+
+<PyodideEditor
+  initialCode={`# A conceptual + arithmetic problem.
+# P(disease) = 0.001
+# P(positive | disease) = 0.99       (true positive rate)
+# P(positive | healthy) = 0.01       (false positive rate)
+#
+# Your code: use Bayes' rule to compute P(disease | positive). Is it close to 99%?
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+<PyodideEditor
+  initialCode={`p_disease = 0.001
+p_pos_given_disease = 0.99
+p_pos_given_healthy = 0.01
+
+# P(positive) = P(pos|disease)P(disease) + P(pos|healthy)P(healthy)
+p_pos = p_pos_given_disease*p_disease + p_pos_given_healthy*(1 - p_disease)
+# Bayes' rule:
+p_disease_given_pos = p_pos_given_disease * p_disease / p_pos
+print(f"P(disease | positive) = {p_disease_given_pos:.3f}")
+`}
+/>
+
+The answer is about **0.090** — only 9%, nowhere near 99%. The test's accuracy is
+$P(\text{positive} \mid \text{disease})$, but the question asks for $P(\text{disease}
+\mid \text{positive})$, and Bayes' rule shows these differ enormously when the disease
+is rare: the healthy population is so large that its 1% false positives swamp the few
+true positives. This base-rate reasoning is the heart of the naive Bayes classifier in
+Chapter 16, and a mistake people make every day.
+
+</details>
+
+---
+
+*Next: Chapter 4 — Your first model: k-nearest neighbours.* With the toolkit in hand,
+the simplest possible model: to predict, just look at the most similar examples you
+have already seen — and let it teach you decision boundaries, the role of distance,
+and the bias–variance trade-off in the flesh.
