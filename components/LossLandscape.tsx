@@ -1,44 +1,59 @@
 'use client'
 
 import { useMemo, useRef, useState } from 'react'
-import { trainMLP, lossSurface, descendSurface, makeXORData, type WeightRef } from '@/lib/neuralnet'
+import { trainMLP, lossSurface, descendSurface, makeXORData, type MLP, type WeightRef } from '@/lib/neuralnet'
 
 const W = 420
 const H = 420
 const PAD = 16
 const GRID = 50
 const RANGE = 5
+// the two input weights of the two hidden units, for the same input feature:
+// swapping them is a network symmetry, so this slice is genuinely multi-valleyed.
 const A1: WeightRef = { layer: 0, i: 0, j: 0 }
-const A2: WeightRef = { layer: 1, i: 0, j: 0 }
+const A2: WeightRef = { layer: 0, i: 1, j: 0 }
 
 export default function LossLandscape() {
   const svgRef = useRef<SVGSVGElement>(null)
-  const data = useMemo(() => makeXORData(140, 3), [])
-  // a partly-trained tiny net, frozen as the backdrop
-  const net = useMemo(() => trainMLP(makeXORData(80, 3), [2], { epochs: 40, lr: 0.5, act: 'tanh', seed: 9 })[6].net, [])
+  const data = useMemo(() => makeXORData(160, 3), [])
+  // a fully-trained tiny net; zero the two sliced weights so the slice is
+  // centred on the origin and both symmetric valleys fall inside the view.
+  const net = useMemo<MLP>(() => {
+    const trained = trainMLP(makeXORData(120, 3), [3], { epochs: 1200, lr: 0.6, act: 'tanh', seed: 7 })
+    const n = trained[trained.length - 1].net
+    const clone: MLP = { W: n.W.map((m) => m.map((r) => r.slice())), b: n.b.map((r) => r.slice()), act: n.act }
+    clone.W[A1.layer][A1.i][A1.j] = 0
+    clone.W[A2.layer][A2.i][A2.j] = 0
+    return clone
+  }, [])
   const { surface, c1, c2 } = useMemo(() => lossSurface(net, data, A1, A2, RANGE, GRID), [net, data])
 
   const [userStarts, setUserStarts] = useState<[number, number][]>([])
 
-  const lo = Math.min(...surface.flat())
-  const hi = Math.max(...surface.flat())
+  // contrast-enhanced shading: clamp the high (ridge) end and take a sqrt so the
+  // valley structure spreads across the colour range instead of washing out.
+  const { lo, clampHi } = useMemo(() => {
+    const sorted = [...surface.flat()].sort((a, b) => a - b)
+    return { lo: sorted[0], clampHi: sorted[Math.floor(sorted.length * 0.7)] }
+  }, [surface])
 
   // weight-value <-> screen
   const wx = (w1: number) => PAD + ((w1 - (c1 - RANGE)) / (2 * RANGE)) * (W - 2 * PAD)
   const wy = (w2: number) => PAD + ((w2 - (c2 - RANGE)) / (2 * RANGE)) * (H - 2 * PAD)
 
   const presets: [number, number][] = [
-    [c1 - RANGE * 0.72, c2 - RANGE * 0.72],
-    [c1 + RANGE * 0.72, c2 + RANGE * 0.72],
+    [c1 - RANGE * 0.7, c2 - RANGE * 0.7],
+    [c1 + RANGE * 0.7, c2 + RANGE * 0.7],
+    [c1 - RANGE * 0.7, c2 + RANGE * 0.7],
   ]
   const trajectories = useMemo(
-    () => [...presets, ...userStarts].map((s) => descendSurface(net, data, A1, A2, s, 0.6, 45)),
+    () => [...presets, ...userStarts].map((s) => descendSurface(net, data, A1, A2, s, 0.7, 60)),
     [net, data, userStarts], // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   const shade = (v: number) => {
-    const t = (v - lo) / (hi - lo) // 0 low loss .. 1 high
-    // low loss = dark teal valley, high = pale
+    let t = (v - lo) / (clampHi - lo)
+    t = Math.sqrt(Math.max(0, Math.min(1, t))) // 0 low loss .. 1 high
     const r = 29 + (244 - 29) * t, g = 109 + (238 - 109) * t, b = 94 + (226 - 94) * t
     return `rgb(${r.toFixed(0)},${g.toFixed(0)},${b.toFixed(0)})`
   }
@@ -58,7 +73,7 @@ export default function LossLandscape() {
   return (
     <figure className="my-10">
       <div className="flex items-center justify-between mb-3 font-sans text-sm">
-        <span className="text-ink-muted">Click the surface to drop a new starting point.</span>
+        <span className="text-ink-muted">Click the surface to drop a starting point. Dark valleys = low loss; pale ridges = high. Axes are two of the network&rsquo;s weights.</span>
         {userStarts.length > 0 && <button onClick={() => setUserStarts([])} className="px-3 py-1 border border-rule rounded hover:bg-paper-soft transition-colors">Clear</button>}
       </div>
 
@@ -76,8 +91,6 @@ export default function LossLandscape() {
               <circle cx={wx(path[path.length - 1][0])} cy={wy(path[path.length - 1][1])} r={4} fill="var(--accent)" stroke="var(--paper)" strokeWidth={1.25} />
             </g>
           ))}
-          <text x={PAD + 4} y={H - 8} fontSize={9} fill="var(--ink-faint)" fontFamily="var(--font-mono, monospace)">dark = low loss (valleys) · pale = high loss</text>
-          <text x={W / 2} y={H - 8} fontSize={9} fill="var(--ink-faint)" textAnchor="middle" fontFamily="var(--font-sans, sans-serif)">two weights of the network</text>
         </svg>
       </div>
 

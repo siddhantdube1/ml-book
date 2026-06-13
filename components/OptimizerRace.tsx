@@ -34,7 +34,7 @@ export default function OptimizerRace() {
   }, [playing, idx, nFrames])
 
   const lx = (e: number) => PAD_L + (e / EPOCHS) * (W - PAD_L - PAD_R)
-  const ly = (l: number) => PAD_T + (Math.min(l, Y_MAX) / Y_MAX) * (H - PAD_T - PAD_B)
+  const ly = (l: number) => H - PAD_B - (Math.min(l, Y_MAX) / Y_MAX) * (H - PAD_T - PAD_B)
   const curEpoch = runs[0].frames[Math.min(idx, nFrames - 1)].epoch
 
   return (
@@ -82,11 +82,11 @@ export default function OptimizerRace() {
         Figure 22.4 — The optimiser matters. All three descend the same network on
         the same data, differing only in how they use the gradient.{' '}
         <span style={{ color: '#3c5a8c' }}>Plain SGD</span> inches down and stalls
-        on the flats. <span style={{ color: '#c7522a' }}>Momentum</span>
-        accumulates speed and rolls through them. <span style={{ color: '#1d6d5e' }}>Adam</span>
-        gives every weight its own adaptive step and reaches a low loss in a
-        fraction of the epochs — which is why it is the default optimiser of modern
-        deep learning.
+        on the flats. <span style={{ color: '#c7522a' }}>Momentum</span>{' '}
+        accumulates speed and rolls through them.{' '}
+        <span style={{ color: '#1d6d5e' }}>Adam</span> gives every weight its own
+        adaptive step and reaches a low loss in a fraction of the epochs — which
+        is why it is the default optimiser of modern deep learning.
       </figcaption>
     </figure>
   )
