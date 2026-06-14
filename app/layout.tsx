@@ -1,5 +1,10 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import ThemeToggle from '@/components/ThemeToggle'
+
+// Runs before first paint to set the theme, avoiding a flash of the wrong mode.
+// Reads a saved choice, otherwise falls back to the OS preference.
+const themeInitScript = `(function(){try{var t=localStorage.getItem('theme');if(t!=='light'&&t!=='dark'){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){}})();`
 
 const SITE_NAME = 'The Interactive Handbook on Machine Learning'
 const SITE_DESCRIPTION =
@@ -54,8 +59,9 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           rel="preconnect"
@@ -67,7 +73,10 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <ThemeToggle />
+        {children}
+      </body>
     </html>
   )
 }

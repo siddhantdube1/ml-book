@@ -375,8 +375,8 @@ entirely.
 variances. When one cluster is much wider than another, the wider cluster's
 WCSS dominates the objective, and the algorithm will sometimes split the
 wide cluster into multiple smaller ones while combining smaller true
-clusters into one. Gaussian mixture models (Chapter 22's optional
-extensions) handle this by letting each cluster have its own covariance.
+clusters into one. Gaussian mixture models handle this by letting each
+cluster have its own covariance.
 
 *Outliers.* Because WCSS uses *squared* distance, a single outlier can pull
 a centroid far from the rest of its cluster. There are robust variants —

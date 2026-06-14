@@ -6,6 +6,7 @@
 
 @layer base {
   :root {
+    /* Light theme (default) */
     --paper: #fbfaf6;
     --ink: #18181b;
     --ink-muted: #5b5b62;
@@ -16,16 +17,33 @@
     --font-serif: 'Source Serif 4', 'Charter', 'Georgia', serif;
     --font-sans: 'Geist', system-ui, -apple-system, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
+
+    color-scheme: light;
   }
 
+  /* Dark theme: applied when explicitly chosen... */
+  :root[data-theme='dark'] {
+    --paper: #131311;
+    --ink: #f4f1e8;
+    --ink-muted: #a8a89e;
+    --ink-faint: #6a6a64;
+    --rule: #2a2a26;
+    --accent: #4fb89f;
+
+    color-scheme: dark;
+  }
+
+  /* ...or when the OS prefers dark and the reader has made no explicit choice. */
   @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-theme]) {
       --paper: #131311;
       --ink: #f4f1e8;
       --ink-muted: #a8a89e;
       --ink-faint: #6a6a64;
       --rule: #2a2a26;
       --accent: #4fb89f;
+
+      color-scheme: dark;
     }
   }
 
@@ -34,6 +52,14 @@
     color: var(--ink);
     -webkit-font-smoothing: antialiased;
     font-feature-settings: 'kern', 'liga', 'onum';
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  /* Smoothly cross-fade backgrounds and borders when the theme flips. */
+  *,
+  *::before,
+  *::after {
+    transition: background-color 0.3s ease, border-color 0.3s ease;
   }
 
   body {
@@ -124,8 +150,12 @@
     margin: 1.5rem 0;
   }
 
+  :root[data-theme='dark'] .prose-chapter pre {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
   @media (prefers-color-scheme: dark) {
-    .prose-chapter pre {
+    :root:not([data-theme]) .prose-chapter pre {
       background: rgba(255, 255, 255, 0.03);
     }
   }

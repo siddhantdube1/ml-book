@@ -2,11 +2,12 @@ import createMDX from '@next/mdx'
 import remarkMath from 'remark-math'
 import remarkGfm from 'remark-gfm'
 import rehypeKatex from 'rehype-katex'
+import remarkChapterLinks from './lib/remark-chapter-links.mjs'
 
 const withMDX = createMDX({
   extension: /\.mdx?$/,
   options: {
-    remarkPlugins: [remarkGfm, remarkMath],
+    remarkPlugins: [remarkGfm, remarkMath, remarkChapterLinks],
     rehypePlugins: [[rehypeKatex, { strict: false }]],
   },
 })

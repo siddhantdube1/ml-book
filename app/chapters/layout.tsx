@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import ChapterNav from '@/components/ChapterNav'
 
 export default function ChaptersLayout({
   children,
@@ -18,6 +19,7 @@ export default function ChaptersLayout({
       </nav>
       <article className="max-w-wide mx-auto px-6 py-12 md:py-16 prose-chapter">
         {children}
+        <ChapterNav />
       </article>
     </div>
   )
