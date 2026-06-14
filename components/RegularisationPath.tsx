@@ -31,9 +31,9 @@ const FEATURE_COLORS = [
   'var(--accent)',
   '#3c5a8c',
   '#c7522a',
-  '#9c9890',
-  '#9c9890',
-  '#9c9890',
+  'var(--series-muted)',
+  'var(--series-muted)',
+  'var(--series-muted)',
 ] as const
 const FEATURE_DASH = ['', '', '', '3,3', '3,3', '3,3'] as const
 const FEATURE_NAMES = ['w₀', 'w₁', 'w₂', 'w₃', 'w₄', 'w₅'] as const

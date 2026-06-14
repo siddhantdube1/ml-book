@@ -14,6 +14,7 @@ const config: Config = {
       },
       colors: {
         paper: 'var(--paper)',
+        'paper-soft': 'var(--paper-soft)',
         ink: 'var(--ink)',
         'ink-muted': 'var(--ink-muted)',
         'ink-faint': 'var(--ink-faint)',

@@ -13,6 +13,11 @@
     --ink-faint: #9a9a9f;
     --rule: #e8e6dc;
     --accent: #1d6d5e;
+    /* Subtle panel behind each widget (a touch warmer than the page). */
+    --paper-soft: #f4f1e9;
+    /* De-emphasised data series (dashed/secondary lines). Tuned to clear
+       3:1 against both papers, so it recedes without disappearing. */
+    --series-muted: #7c776e;
 
     --font-serif: 'Source Serif 4', 'Charter', 'Georgia', serif;
     --font-sans: 'Geist', system-ui, -apple-system, sans-serif;
@@ -29,6 +34,8 @@
     --ink-faint: #6a6a64;
     --rule: #2a2a26;
     --accent: #4fb89f;
+    --paper-soft: #1b1b18;
+    --series-muted: #8f8b80;
 
     color-scheme: dark;
   }
@@ -42,6 +49,8 @@
       --ink-faint: #6a6a64;
       --rule: #2a2a26;
       --accent: #4fb89f;
+      --paper-soft: #1b1b18;
+      --series-muted: #8f8b80;
 
       color-scheme: dark;
     }
