@@ -1,10 +1,10 @@
 import type { Metadata } from 'next'
-import './globals.css'
-import ThemeToggle from '@/components/ThemeToggle'
-
-// Runs before first paint to set the theme, avoiding a flash of the wrong mode.
-// Reads a saved choice, otherwise falls back to the OS preference.
-const themeInitScript = `(function(){try{var t=localStorage.getItem('theme');if(t!=='light'&&t!=='dark'){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){}})();`
+import '@trilogy/book-kit/theme/globals.css'
+import {
+  ThemeToggle,
+  themeInitScript,
+  FONT_STYLESHEET_HREF,
+} from '@trilogy/book-kit/theme'
 
 const SITE_NAME = 'The Interactive Handbook on Machine Learning'
 const SITE_DESCRIPTION =
@@ -68,10 +68,7 @@ export default function RootLayout({
           href="https://fonts.gstatic.com"
           crossOrigin="anonymous"
         />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&family=Geist:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
-          rel="stylesheet"
-        />
+        <link href={FONT_STYLESHEET_HREF} rel="stylesheet" />
       </head>
       <body>
         <ThemeToggle />
