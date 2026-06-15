@@ -60,6 +60,7 @@ export const parts: Part[] = [
 
 /** Slugs of chapters with shipped pages. Grows as chapters land. */
 export const BUILT = new Set<string>([
+  '1-what-is-a-language-model',
   '2-tokenization',
   '4-attention',
   '14-sampling',

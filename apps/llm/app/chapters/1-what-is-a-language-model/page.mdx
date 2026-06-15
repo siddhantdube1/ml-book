@@ -1,0 +1,197 @@
+import NextTokenPredictor from '@/components/NextTokenPredictor'
+import { PyodideEditor } from '@trilogy/book-kit/code'
+
+export const metadata = {
+  title: 'What is a language model?',
+  description:
+    'A language model does one thing: predict the next token. From that single objective — autocomplete trained on the internet — comes everything else. With a real GPT-2 next-token predictor and the simplest possible language model built from scratch.',
+  openGraph: {
+    title: 'What is a language model?',
+    description:
+      'The one objective behind every LLM: predict the next token. Why that simple task, at scale, produces something that looks like understanding.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 1 · Part I — From text to a language model
+</p>
+
+# What is a language model?
+
+*Strip away the mystique and there is one task underneath everything: predict
+the next word. The whole field is what happens when you do that absurdly well.*
+
+Your phone has done it for years. You type *I'll be there in five*, and it
+offers *minutes*. That is a language model — a system that, given some text, puts
+a probability on what comes next. The thing in your pocket is small and weak; the
+thing behind a modern chatbot is enormous and strong. But the task is *identical*.
+A large language model is autocomplete that read most of the internet.
+
+That is not a deflation — it is the whole secret. Everything an LLM appears to do
+— answer questions, write code, translate, reason step by step — it does by
+predicting next tokens, one at a time, extremely well. There is no separate
+"understanding" module bolted on. Understanding, to whatever degree it exists, is
+a *side effect* of getting very good at one narrow game.
+
+By the end of this chapter you will know exactly what that game is, why playing it
+well forces a model to learn far more than spelling, and you will have built the
+simplest possible language model with your own hands. Everything in the rest of
+the book is an answer to the question: *how do you get good at next-token
+prediction?*
+
+## 1. The one objective
+
+Fix a vocabulary of tokens (Chapter 2 makes "token" precise; for now, read it as
+"word"). A language model is a function that takes a sequence of tokens — the
+**context** — and returns a probability distribution over which token comes next:
+
+$$P(\text{next token} \mid \text{context}).$$
+
+That's the entire specification. Feed it *The capital of France is* and a good
+model puts most of its probability on *Paris*. Feed it *Once upon a time, there
+was a* and the probability spreads across hundreds of plausible nouns, because
+genuinely many words could come next. The model isn't choosing a word yet — it is
+reporting its beliefs about all of them at once.
+
+Here is a real one doing exactly that. This is GPT-2's actual next-token
+distribution for a few contexts — no tricks, the model's own probabilities.
+
+<NextTokenPredictor
+  fixtureIds={['capital-france', 'opposite-hot', 'once-upon', 'sky-is']}
+  caption="Figure 1.1 — GPT-2's predicted next tokens. Sometimes it is nearly certain (one bar towers); sometimes the guess is wide open. Either way, the output is a distribution, not a word."
+/>
+
+Switch contexts and watch the shape of the model's confidence change. That shape —
+how mass is spread over the vocabulary — is the model's entire output at each step.
+Turning it into actual text is a separate choice we save for Chapter 14.
+
+## 2. Predicting is classifying
+
+If this feels familiar from the first book, it should. Predicting the next token is
+**classification** — the same problem as Chapters 7 and 8 there, just with a
+fifty-thousand-way choice instead of two. The model produces a score for every
+token in the vocabulary, a softmax turns those scores into probabilities, and
+training nudges the weights to put more mass on whatever token actually came next.
+
+This is why the objective is so powerful as a *teacher*: the labels are free. Every
+sentence ever written is a stack of training examples — for each position, the
+"correct answer" is simply the token that genuinely follows. No human has to label
+anything. Point the model at a trillion words of text and it has a trillion
+self-supervised examples. This is **pretraining**, and we return to it in
+Chapter 10; for now, just notice that the data problem solves itself.
+
+## 3. Why next-token prediction is not trivial
+
+It is tempting to think such a simple objective could only ever learn surface
+statistics — which words tend to follow which. And a weak model does exactly that.
+But push the task hard enough and something else happens.
+
+To predict the next token in *The murderer turned out to be the* you must track who
+appeared in the story and who had motive. To finish *2,341 + 6,809 =* you must
+actually add. To continue a proof you must follow the argument. Each of these is
+"just" next-token prediction, but doing it *well* is impossible without modelling
+the thing the text is about. Compression forces comprehension: the cheapest way to
+predict text generated by a world is to build a small model of that world. That is
+the bet the whole field is making, and so far it keeps paying off.
+
+## 4. The simplest language model
+
+To make "language model" fully concrete, here is one you can read end to end — a
+**bigram model**. It learns nothing but which word tends to follow which, from a
+tiny corpus, then generates by sampling. It is hopeless, but it is unmistakably a
+language model: context in, distribution over next word out.
+
+<PyodideEditor
+  initialCode={`import random
+from collections import defaultdict, Counter
+
+text = ("the cat sat on the mat . the dog sat on the log . "
+        "the cat ran to the dog . the dog ran to the mat .").split()
+
+# Count which word follows which.
+counts = defaultdict(Counter)
+for a, b in zip(text, text[1:]):
+    counts[a][b] += 1
+
+def predict(word):
+    "Return P(next | word) as a sorted list."
+    c = counts[word]
+    total = sum(c.values())
+    return sorted(((w, n / total) for w, n in c.items()), key=lambda x: -x[1])
+
+print("after 'the':", predict("the"))
+print("after 'sat':", predict("sat"))
+
+# Generate by sampling from the distribution, one token at a time.
+random.seed(0)
+word, out = "the", ["the"]
+for _ in range(12):
+    nxt = counts[word]
+    if not nxt:
+        break
+    word = random.choices(list(nxt), weights=list(nxt.values()))[0]
+    out.append(word)
+print("\\ngenerated:", " ".join(out))
+`}
+/>
+
+That is the whole idea, in miniature: estimate $P(\text{next} \mid \text{context})$,
+then sample from it repeatedly. A transformer replaces the lookup table with a deep
+network and the one-word context with thousands of tokens of attention — but the
+shape of the task never changes from what you just ran.
+
+## 5. From prediction to a helpful assistant
+
+One loose end. A raw next-token predictor trained on the internet will, given *What
+is the capital of France?*, often continue with *What is the capital of Germany?* —
+because that's the kind of text that follows a question in the wild (a list of more
+questions). It is a brilliant mimic with no instinct to *help*. Turning that mimic
+into something that answers when asked takes an extra training stage —
+instruction-tuning and learning from human preferences — which is the story of
+Chapters 12 and 13. The base model supplies the raw capability; alignment aims it
+at you.
+
+## 6. Problems
+
+### Problem 1 — Confident or unsure?
+
+Using Figure 1.1, find the context where GPT-2 is most confident and the one where
+it is least confident. What is it about each context that makes the model certain
+or uncertain? Connect your answer to the shape of the distribution.
+
+<details>
+  <summary>Show solution</summary>
+
+*The opposite of hot is* is the most confident — *cold* dominates, because the
+context almost determines the answer. *Once upon a time, there was a* is the least
+— dozens of nouns are all plausible continuations, so the mass spreads thin.
+Confidence is just how peaked the distribution is, and that depends on how much the
+context constrains what can come next. A good model is *appropriately* uncertain:
+sharp when the answer is forced, broad when it genuinely isn't.
+
+</details>
+
+### Problem 2 — The bigram's ceiling
+
+Extend the §4 model to a **trigram** (condition on the previous *two* words instead
+of one). Why does this help, and why can't you fix the model's real problem just by
+using longer and longer n-grams?
+
+<details>
+  <summary>Show solution</summary>
+
+Conditioning on two words captures a little more structure, so predictions sharpen.
+But the table grows exponentially with the context length, and almost every long
+context appears zero times in any finite corpus — so the counts collapse to noise.
+This is the curse that killed n-gram models and motivated neural ones: you need a
+model that *generalises* across contexts it has never seen exactly, by representing
+words as vectors rather than table keys. That is the subject of the next chapter.
+
+</details>
+
+---
+
+*Next: Chapter 2 — Tokenization.* Before any of this can run, text has to become a
+sequence of tokens — and where those boundaries fall explains some of the strangest
+things models get wrong.
