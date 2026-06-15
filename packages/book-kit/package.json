@@ -1,0 +1,30 @@
+{
+  "name": "@trilogy/book-kit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./theme": "./src/theme/index.ts",
+    "./theme/globals.css": "./src/theme/globals.css",
+    "./nav": "./src/nav/index.ts",
+    "./code": "./src/code/index.ts",
+    "./mdx": "./src/mdx/index.ts",
+    "./tailwind-preset": "./src/design/tailwind-preset.ts"
+  },
+  "peerDependencies": {
+    "next": ">=15",
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "dependencies": {
+    "@codemirror/lang-python": "^6.1.6",
+    "@codemirror/state": "^6.4.1",
+    "@codemirror/view": "^6.34.1",
+    "@uiw/react-codemirror": "^4.23.6",
+    "katex": "^0.16.11"
+  },
+  "devDependencies": {
+    "@types/mdx": "^2.0.13",
+    "tailwindcss": "^3.4.15"
+  }
+}
