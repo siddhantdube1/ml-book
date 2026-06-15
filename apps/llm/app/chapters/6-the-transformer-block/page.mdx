@@ -1,0 +1,187 @@
+import TransformerBlock from '@/components/TransformerBlock'
+import { PyodideEditor } from '@trilogy/book-kit/code'
+
+export const metadata = {
+  title: 'The transformer block',
+  description:
+    'Attention is one ingredient. The transformer block wraps it with a feed-forward network, residual connections, and layer normalisation — and that block, stacked, is the whole model. With an interactive block diagram and a block built from scratch.',
+  openGraph: {
+    title: 'The transformer block',
+    description:
+      'The residual stream, attention and MLP sublayers, and layer norm — the unit that gets stacked into a transformer.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 6 · Part II — The Transformer
+</p>
+
+# The transformer block
+
+*Attention by itself is not a model. The block is the repeating unit that turns it
+into one — and the whole network is just this, stacked.*
+
+We have a powerful tool for letting tokens read each other. But attention alone
+can't think: it only *moves* information between positions, it doesn't transform it
+much. A working model needs two more things — somewhere to *compute* on each token,
+and a structure that lets you stack the whole thing dozens deep without it falling
+apart. That structure is the **transformer block**, and the entire model is nothing
+but a stack of identical blocks.
+
+By the end of this chapter you will know the four parts of a block — the residual
+stream, the attention sublayer, the feed-forward sublayer, and layer normalisation
+— and you will have assembled one in NumPy.
+
+## 1. The residual stream
+
+Picture a vector travelling straight up through the block, untouched by default.
+This is the **residual stream**, and it is the most important and most
+underappreciated idea in the architecture. Each component does not *replace* the
+stream; it *reads* a copy, computes something, and *adds* the result back:
+
+$$x \leftarrow x + \text{Sublayer}(x).$$
+
+Because every sublayer adds rather than overwrites, information placed in the stream
+early survives all the way to the top unless something actively cancels it. The
+stream is a shared workspace that every layer reads from and writes to — and, as
+we'll see in §4, that additive structure is also what makes deep stacks trainable
+at all.
+
+## 2. The two sublayers
+
+A block has exactly two sublayers, and they play complementary roles. Step through
+them:
+
+<TransformerBlock caption="Figure 6.1 — One transformer block. A token rides the residual stream upward; each sublayer reads it, computes, and adds back. Attention mixes information between tokens; the MLP processes each token alone." />
+
+**Attention** (Chapters 4–5) is the *communication* step: the only place where
+tokens look at each other and exchange information. **The MLP** — a small two-layer
+feed-forward network applied to each token independently — is the *computation*
+step: no looking around, just transforming each token's vector on its own. A rough
+but useful slogan: attention moves information between positions, the MLP thinks
+about it. The MLP is also where a great deal of the model's factual knowledge is
+stored, in the weights of those feed-forward layers.
+
+The ordering is fixed: attend (mix across tokens), then MLP (process each token),
+each wrapped as a residual add. Stack that pair and you have depth.
+
+## 3. Layer normalisation
+
+Before each sublayer, the stream passes through **layer normalisation** — rescale
+the vector to zero mean and unit variance, then apply a learned scale and shift.
+The reason is unglamorous but essential: as signals accumulate up a deep residual
+stream, their magnitudes drift, and unchecked drift makes training unstable.
+Normalising at the entrance to each sublayer keeps every component working with
+inputs in a sane range. Modern transformers put the norm *inside* the residual
+branch (pre-norm), which is what the diagram shows.
+
+## 4. Why residual connections matter
+
+The additive stream is not just tidy bookkeeping — it is what lets the network be
+deep. Recall backpropagation from the companion ML book: gradients are chained
+backwards through every layer by repeated multiplication, and in a deep plain
+network they decay toward zero long before reaching the early layers. A residual
+connection, $x + \text{Sublayer}(x)$, gives the gradient a second path — straight
+through the $+$, undiminished. That gradient highway is precisely why we can stack
+dozens of blocks and still train the bottom one. Without residuals, deep
+transformers simply would not learn.
+
+## 5. Building a block
+
+Here is a complete pre-norm transformer block: two residual adds, each wrapping a
+normalise-then-sublayer. The attention is the function from Chapter 4; the MLP is
+two linear layers with a non-linearity between.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def softmax(x, axis=-1):
+    x = x - x.max(axis=axis, keepdims=True)
+    e = np.exp(x); return e / e.sum(axis=axis, keepdims=True)
+
+def layer_norm(x, eps=1e-5):
+    mu = x.mean(-1, keepdims=True); var = x.var(-1, keepdims=True)
+    return (x - mu) / np.sqrt(var + eps)
+
+def attention(X, Wq, Wk, Wv):
+    Q, K, V = X @ Wq, X @ Wk, X @ Wv
+    n, d_k = X.shape[0], Wq.shape[1]
+    s = Q @ K.T / np.sqrt(d_k)
+    s[np.triu(np.ones((n, n)), k=1).astype(bool)] = -np.inf
+    return softmax(s) @ V
+
+def gelu(x):
+    return 0.5 * x * (1 + np.tanh(0.797885 * (x + 0.044715 * x**3)))
+
+def mlp(X, W1, W2):
+    return gelu(X @ W1) @ W2
+
+def block(X, p):
+    X = X + attention(layer_norm(X), p["Wq"], p["Wk"], p["Wv"])   # communicate
+    X = X + mlp(layer_norm(X), p["W1"], p["W2"])                  # compute
+    return X
+
+rng = np.random.default_rng(0)
+n, d = 5, 16
+X = rng.standard_normal((n, d))
+p = {
+    "Wq": rng.standard_normal((d, d)) * 0.1, "Wk": rng.standard_normal((d, d)) * 0.1,
+    "Wv": rng.standard_normal((d, d)) * 0.1, "W1": rng.standard_normal((d, 4 * d)) * 0.1,
+    "W2": rng.standard_normal((4 * d, d)) * 0.1,
+}
+out = block(X, p)
+print("in:", X.shape, "-> out:", out.shape, "(identical — so it stacks)")
+print("stream preserved? input still detectable in output:",
+      bool(np.corrcoef(X.ravel(), out.ravel())[0, 1] > 0.5))
+`}
+/>
+
+Input shape equals output shape, so blocks chain trivially: the output of one is
+the input of the next. A real model is this function, with learned weights, run 12
+or 96 times in a row.
+
+## 6. Problems
+
+### Problem 1 — What each sublayer can and can't do
+
+Suppose you deleted the attention sublayer from every block, leaving only MLPs and
+residuals. What could such a model no longer do, and why would it be useless as a
+language model?
+
+<details>
+  <summary>Show solution</summary>
+
+Without attention, no token can ever see any other token — each position would be
+processed in complete isolation. The model could transform a token's own embedding
+but could never use context, so *the cat sat on the* and *the dog sat on the* would
+predict the next word identically regardless of everything before. Attention is the
+only cross-token communication; remove it and the "language" model can't read the
+sentence at all.
+
+</details>
+
+### Problem 2 — Residuals and depth
+
+In the §5 code, the block adds each sublayer's output to the stream. Change both
+`+` to plain assignment (overwrite instead of add) and stack the block several
+times in a loop. What tends to happen to the signal, and how does the residual form
+avoid it?
+
+<details>
+  <summary>Show solution</summary>
+
+Overwriting throws away the running representation at each step, so after several
+layers the original input is gone and (with small random weights) the signal tends
+to collapse toward zero or noise. The residual form keeps a clean copy of the
+stream and only *adds* refinements, so the input survives and each layer makes an
+incremental edit. That preservation is what lets the forward signal — and, in
+training, the backward gradient — survive many layers.
+
+</details>
+
+---
+
+*Next: Chapter 7 — Depth.* A single block refines a token a little; stack many and
+something remarkable happens — we can watch the model's prediction form, layer by
+layer.

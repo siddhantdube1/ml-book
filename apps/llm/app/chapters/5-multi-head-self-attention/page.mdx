@@ -1,0 +1,180 @@
+import MultiHeadGrid from '@/components/MultiHeadGrid'
+import { PyodideEditor } from '@trilogy/book-kit/code'
+
+export const metadata = {
+  title: 'Multi-head self-attention',
+  description:
+    'One attention head can express one kind of relationship. A transformer runs many in parallel, each in its own subspace, each free to specialise. See all of GPT-2’s heads at once and build multi-head attention from scratch.',
+  openGraph: {
+    title: 'Multi-head self-attention',
+    description:
+      'Why transformers run many attention heads in parallel — each a small specialist — shown across all of GPT-2’s heads.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 5 · Part II — The Transformer
+</p>
+
+# Multi-head self-attention
+
+*One head learned to resolve a pronoun. A transformer runs dozens at once, each
+free to track something different.*
+
+In Chapter 4 we watched a single attention head send the word *it* to *suitcase* —
+real coreference, learned from nothing but next-token prediction. But that head can
+do *only* that. A single attention operation produces one weighted average per
+token, which means each token gets to express exactly one blend of the others. One
+relationship at a time.
+
+Real language needs more at once. To process a verb you might want to attend to its
+subject *and* its object *and* the word right before it — three different
+relationships, three different weightings, simultaneously. A single head cannot
+hold them; its one softmax has to choose. The fix is embarrassingly direct: run
+many attention heads in parallel, and let each learn its own thing.
+
+By the end of this chapter you will have seen all of GPT-2's heads laid out at
+once, and built multi-head attention on top of the single-head version from
+Chapter 4.
+
+## 1. Why one head is not enough
+
+The bottleneck is the softmax. Each token's attention weights sum to one, so
+attention is a *single* probability distribution over the other tokens — a single
+choice of where to look. Pour weight onto the subject and you have none left for
+the verb. One head is one lens, and language has more than one thing worth looking
+at from any given word.
+
+You could imagine making the head "smarter," but that misses a cheaper, more robust
+idea: don't build one clever lens, build many simple ones and let them divide the
+labour.
+
+## 2. Heads in parallel
+
+Multi-head attention splits the work across $h$ heads (GPT-2 uses 12). The model's
+768-dimensional vectors are sliced into 12 chunks of 64 dimensions, and each head
+runs the *entire* query–key–value attention of Chapter 4 inside its own 64-
+dimensional slice. Because the dimensions are divided up rather than duplicated, 12
+heads cost about the same as one — you get a dozen independent attention patterns
+nearly for free.
+
+Each head has its own learned query, key, and value projections, so each is free to
+specialise: one head tracks the previous token, another sends pronouns to their
+referents, another attends to matching punctuation. Nobody assigns these roles;
+they emerge in training, and they differ from head to head.
+
+## 3. Seeing the heads
+
+Here are all 12 heads of GPT-2, for one layer, on a single sentence. Each tile is
+one head's attention pattern; click any to enlarge it. Slide through the layers.
+
+<MultiHeadGrid
+  fixtureId="cat-mat"
+  caption="Figure 5.1 — Every head of one GPT-2 layer at once. Some heads attend locally (a bright sub-diagonal), some dump weight on the first token, some pick out specific words. Same layer, same input — wildly different jobs."
+/>
+
+The point is the *variety*. Within a single layer, some heads show a crisp diagonal
+(attend to the previous token), some pile onto the first token (a resting state),
+some light up on particular words. This division of labour, repeated across every
+layer, is how a transformer reads many relationships from the same sentence at the
+same time.
+
+## 4. Recombining
+
+After the heads run, their 64-dimensional outputs are concatenated back into a
+768-dimensional vector and passed through one more learned projection, $W_O$, which
+lets the heads' findings mix:
+
+$$\text{MultiHead}(x) = \text{Concat}(\text{head}_1, \dots, \text{head}_h)\,W_O.$$
+
+So the flow is: split into heads, attend independently in each, concatenate,
+project. The token leaves with a representation shaped by a dozen different views of
+its context at once.
+
+## 5. Building it from scratch
+
+Multi-head attention is just the Chapter 4 function, run per head, stacked. Here it
+is end to end.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def softmax(x, axis=-1):
+    x = x - x.max(axis=axis, keepdims=True)
+    e = np.exp(x); return e / e.sum(axis=axis, keepdims=True)
+
+def attention(Q, K, V):                       # single head, causal (Chapter 4)
+    d_k = Q.shape[-1]
+    scores = Q @ K.T / np.sqrt(d_k)
+    n = scores.shape[0]
+    scores[np.triu(np.ones((n, n)), k=1).astype(bool)] = -np.inf
+    return softmax(scores) @ V
+
+def multi_head(X, Wq, Wk, Wv, Wo, n_heads):
+    n, d = X.shape
+    d_head = d // n_heads
+    outs = []
+    for h in range(n_heads):
+        sl = slice(h * d_head, (h + 1) * d_head)        # this head's slice
+        Q, K, V = X @ Wq[:, sl], X @ Wk[:, sl], X @ Wv[:, sl]
+        outs.append(attention(Q, K, V))
+    concat = np.concatenate(outs, axis=-1)              # back to d dimensions
+    return concat @ Wo                                  # mix the heads
+
+rng = np.random.default_rng(0)
+n, d, H = 5, 12, 3                                       # 5 tokens, dim 12, 3 heads
+X = rng.standard_normal((n, d))
+Wq, Wk, Wv, Wo = (rng.standard_normal((d, d)) for _ in range(4))
+
+out = multi_head(X, Wq, Wk, Wv, Wo, H)
+print("output shape:", out.shape, "(same as input — stackable)")
+`}
+/>
+
+Notice the output has the same shape as the input. That is deliberate: it means the
+whole operation can be stacked, block on block — which is exactly what the next
+chapter assembles.
+
+## 6. Problems
+
+### Problem 1 — Count the heads' work
+
+GPT-2 small has 12 layers and 12 heads per layer. How many distinct attention
+patterns does it compute for a single sentence? Using Figure 5.1, find one layer
+where the heads look most alike and one where they look most varied.
+
+<details>
+  <summary>Show solution</summary>
+
+12 layers × 12 heads = **144** attention patterns per forward pass. Early layers
+often look more uniform (many heads doing local or first-token attention); middle
+and later layers tend to show more varied, specialised patterns as the model builds
+higher-level structure. The exact answer is something to read off the widget — the
+point is that 144 specialists, not one generalist, process every sentence.
+
+</details>
+
+### Problem 2 — Why split, not duplicate?
+
+Multi-head attention splits 768 dimensions into 12 heads of 64, rather than running
+12 full-width heads. What would full-width heads cost, and what does splitting buy
+besides speed?
+
+<details>
+  <summary>Show solution</summary>
+
+Twelve full-width (768-dim) heads would cost roughly twelve times as much compute
+and parameters. Splitting keeps the total cost about the same as a single head.
+Beyond speed, the lower per-head dimension *forces* specialisation: a 64-dimensional
+head can't represent everything, so it must commit to a narrow job — which is
+exactly the diversity we want. Cheapness and specialisation come from the same
+design choice.
+
+</details>
+
+---
+
+*Next: Chapter 6 — The transformer block.* Attention is one of two sublayers; wrap
+it with a feed-forward network, residual connections, and normalisation and you
+have the unit that gets stacked into a full model.

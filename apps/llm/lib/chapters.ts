@@ -64,6 +64,8 @@ export const BUILT = new Set<string>([
   '2-tokenization',
   '3-embeddings',
   '4-attention',
+  '5-multi-head-self-attention',
+  '6-the-transformer-block',
   '14-sampling',
 ])
 
