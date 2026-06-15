@@ -1,0 +1,166 @@
+import PreferenceTuning from '@/components/PreferenceTuning'
+import { PyodideEditor } from '@trilogy/book-kit/code'
+
+export const metadata = {
+  title: 'Learning from preferences',
+  description:
+    'When there is no single right answer, you train on which of two responses people prefer. Reward models, RLHF, and DPO — the alignment stage that makes assistants helpful and harmless — with the preference loss built from scratch.',
+  openGraph: {
+    title: 'Learning from preferences',
+    description:
+      'How RLHF and DPO turn human comparisons into model behaviour: reward models, preference optimisation, and their risks.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 13 · Part III — How they're trained
+</p>
+
+# Learning from preferences
+
+*For most of what we ask, there is no single correct answer — only better and worse
+ones. The last training stage learns that distinction from human comparisons.*
+
+Instruction-tuning (Chapter 12) taught the model to answer by *imitating* good
+responses. But imitation has a ceiling: it can only reproduce the demonstrations it
+was shown, and for open-ended requests — *write me a poem*, *explain this gently*,
+*is this safe?* — there is no one demonstration to copy. There are countless
+acceptable answers, varying in helpfulness, honesty, tone, and safety, and what we
+actually want is for the model to produce *better* ones.
+
+The breakthrough idea is to stop trying to specify the perfect answer and instead
+learn from **comparisons**. People are bad at writing the ideal response from
+scratch but very good at looking at two responses and saying which is better. Collect
+enough of those judgments and you can train the model toward what people prefer.
+
+By the end of this chapter you will have trained a reward model by clicking, and
+implemented the preference loss that underlies RLHF and DPO.
+
+## 1. From imitation to preference
+
+The shift is from "here is the right answer, copy it" to "here are two answers, this
+one is better." That second signal is far easier to collect at scale and far more
+expressive — it can capture *be more concise*, *don't make things up*, *refuse
+this* — preferences no one could fully enumerate as demonstrations. Try it: pick the
+better response a few times and watch a reward model learn your preference.
+
+<PreferenceTuning caption="Figure 13.1 — Training a reward model from comparisons. Each click is one human preference; the model updates (Bradley-Terry) toward the response you chose, and its predicted preference shifts. Real systems gather millions of such comparisons." />
+
+Each click is a single human judgment. The reward model's job is to *generalise*
+from many such judgments — to assign a scalar "reward" to any response such that
+preferred responses score higher. Once you have that, you have turned a fuzzy human
+value into a number the model can be optimised against.
+
+## 2. The reward model
+
+Concretely: collect a dataset of (prompt, response A, response B, *which was
+preferred*). Train a model — usually a copy of the language model with a scalar
+output head — to predict a reward $r$ for any (prompt, response) such that the
+preferred response gets the higher reward. The training objective says simply: the
+probability assigned to the human's choice should be high, where that probability is
+a logistic function of the reward *difference*. This is the **Bradley-Terry** model,
+the same math behind chess Elo.
+
+## 3. Optimising the policy: RLHF and DPO
+
+With a reward model in hand, you tune the language model (the **policy**) to produce
+responses the reward model scores highly — while staying close to the instruction-
+tuned starting point, so it doesn't wander off into gibberish that happens to fool
+the reward. The classic recipe, **RLHF**, does this with reinforcement learning
+(PPO): generate, score, update. It works but is fiddly.
+
+A newer method, **DPO** (direct preference optimisation), skips the separate reward
+model and RL loop entirely: it rearranges the math so you can train the policy
+*directly* on the preference pairs with a simple classification-style loss. Same
+goal — move probability toward preferred responses, away from dispreferred ones —
+far less machinery. Much of the field has moved to DPO and its relatives.
+
+## 4. What it buys, and what it costs
+
+Preference training is the stage most responsible for the *character* of a modern
+assistant — its helpfulness, its honesty, its refusals. It is also where the
+sharpest failure modes live. Optimise too hard against an imperfect reward model and
+you get **reward hacking** — responses that score well but are worse (verbose,
+sycophantic, confidently wrong). Push safety too far and you get **over-refusal**.
+And the model inherits the values of whoever produced the comparisons. Alignment is
+not solved by this stage; it is *implemented* by it, with all the difficulty that
+implies.
+
+## 5. The preference loss
+
+The heart of it is one line. Given the reward model's scores for the chosen and
+rejected responses, the loss makes the chosen one's reward higher.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def sigmoid(x): return 1 / (1 + np.exp(-x))
+
+# Reward model's scores for the human-chosen and human-rejected responses.
+# Bradley-Terry loss: -log P(chosen preferred) = -log sigmoid(r_chosen - r_rejected).
+def preference_loss(r_chosen, r_rejected):
+    return -np.log(sigmoid(r_chosen - r_rejected))
+
+# Before training: the model wrongly prefers the rejected answer.
+r_chosen, r_rejected = 0.2, 0.9
+print(f"loss before: {preference_loss(r_chosen, r_rejected):.3f}")
+
+# One gradient step on this pair (push chosen up, rejected down).
+lr = 0.5
+for step in range(8):
+    p = sigmoid(r_chosen - r_rejected)
+    g = (1 - p) * lr
+    r_chosen += g; r_rejected -= g
+    print(f"step {step}: r_chosen={r_chosen:+.2f}  r_rejected={r_rejected:+.2f}  "
+          f"loss={preference_loss(r_chosen, r_rejected):.3f}")
+`}
+/>
+
+That single comparison loss, summed over millions of human judgments and used to
+shape the policy, is what stands between a raw instruction-follower and an assistant
+people actually want to talk to.
+
+## 6. Problems
+
+### Problem 1 — Why comparisons, not scores?
+
+Annotators are asked *"which response is better, A or B?"* rather than *"rate this
+response 0–10."* Why are pairwise comparisons easier to collect reliably, and how
+does the §5 loss use them?
+
+<details>
+  <summary>Show solution</summary>
+
+Absolute scores are noisy and inconsistent across people and over time — one
+annotator's 7 is another's 4, and the scale drifts. A pairwise "A is better than B"
+is a far more stable judgment. The Bradley-Terry loss needs only that ordering: it
+maximises the probability of the chosen response under a logistic function of the
+reward *difference*, so only relative reward matters, never an absolute scale. Easier
+to label, and exactly what the loss consumes.
+
+</details>
+
+### Problem 2 — Reward hacking
+
+Suppose the reward model has learned that longer answers tend to be preferred.
+Optimise the policy hard against it and what degenerate behaviour might emerge? What
+does this say about treating the reward model's score as the true objective?
+
+<details>
+  <summary>Show solution</summary>
+
+The policy will learn to pad — produce needlessly long, waffly answers that the
+reward model scores highly but humans actually find worse. This is reward hacking:
+the reward model is a *proxy* for human preference, and optimising a proxy too hard
+exploits its gaps (Goodhart's law). It's why RLHF keeps the policy close to its
+starting point and why reward models must be monitored and refreshed — the score is
+a useful signal, not the real goal.
+
+</details>
+
+---
+
+*Next: Chapter 14 — Sampling and decoding.* The model now produces a good
+distribution over next tokens; turning that distribution into actual text — fluent,
+varied, not repetitive — is a craft of its own.

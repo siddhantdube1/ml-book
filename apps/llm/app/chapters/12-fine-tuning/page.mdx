@@ -1,0 +1,156 @@
+import GenerationPlayback from '@/components/GenerationPlayback'
+import { PyodideEditor } from '@trilogy/book-kit/code'
+
+export const metadata = {
+  title: 'Fine-tuning and instruction-tuning',
+  description:
+    'A pretrained model is a brilliant mimic that won’t follow instructions. See real GPT-2 ignore a request, then learn how supervised fine-tuning on instruction–response pairs turns a base model into an assistant.',
+  openGraph: {
+    title: 'Fine-tuning and instruction-tuning',
+    description:
+      'Why base models don’t answer questions, and how instruction-tuning turns a next-token predictor into a helpful assistant.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 12 · Part III — How they're trained
+</p>
+
+# Fine-tuning and instruction-tuning
+
+*Pretraining produces a model that knows enormous amounts and obeys nothing. The
+fix is a second, much smaller round of training that teaches it how to behave.*
+
+The model that comes out of pretraining is a **base model**, and base models are
+strange to talk to. Ask one *What is the capital of France?* and it is just as
+likely to continue with another question, or a list, or a tangent — because in its
+training data, that is the kind of text that follows a question. It is a flawless
+mimic of the internet, with no particular instinct to *help you*.
+
+Watch a real one. Here is GPT-2, a base model, given instruction-shaped prompts:
+
+<GenerationPlayback
+  fixtureIds={['instr-capital', 'instr-haiku']}
+  caption="Figure 12.1 — Base GPT-2 on instructions. Asked for the capital of France it loops ‘the capital of France is the capital of France…’; asked for a haiku it ignores the request entirely. The knowledge may be in there, but the model has no idea it's supposed to comply." />
+
+Step through it. The model doesn't *refuse* the haiku — it doesn't even register
+that "write a haiku" is a command to be obeyed rather than text to be continued.
+The capability gap between this and a helpful assistant is not knowledge; it is
+*behaviour*. Closing that gap is what this chapter is about.
+
+## 1. Same objective, different data
+
+The mechanism is reassuringly familiar: **fine-tuning** is just more training with
+the very same next-token objective from Chapter 10 — only now on a small, curated
+dataset instead of the raw internet. You continue training the pretrained weights,
+nudging them with new examples. Because the model already knows language, this
+phase is tiny by comparison: thousands to millions of examples, not trillions of
+tokens.
+
+## 2. Supervised fine-tuning
+
+For an assistant, the curated data is **instruction–response pairs**: a prompt
+written like a user request, paired with an ideal answer. *"Write a haiku about the
+ocean."* → a real haiku. *"Summarise this email."* → a good summary. Train on
+enough of these and the model learns the *shape* of the interaction — that text
+formatted as a request should be followed by a compliant, helpful response. This is
+**supervised fine-tuning** (SFT), or **instruction-tuning**.
+
+Crucially, the loss is usually computed only on the **response** tokens, not the
+prompt: we don't want the model to get better at writing instructions, only at
+answering them.
+
+## 3. Surfacing knowledge, not adding it
+
+A common misconception is that instruction-tuning teaches the model facts. It
+mostly doesn't — the facts came from pretraining. What SFT changes is *behaviour*:
+it takes a model that *contains* the answer and teaches it to *produce* the answer
+when asked, in a helpful format. The base GPT-2 above arguably "knows" that Paris is
+the capital of France; it just doesn't know that the right move, given a question,
+is to answer it. Instruction-tuning installs that move.
+
+## 4. The limit that motivates what's next
+
+SFT can only teach the model to imitate the responses it was shown. But for most
+real requests there is no single correct answer — there are better and worse ones,
+and "better" depends on tone, helpfulness, safety, taste. You cannot write a
+demonstration for every situation, and imitation can't express *"this answer is
+better than that one."* To go further, you need a signal of *preference*, not just
+examples to copy — which is the next chapter.
+
+## 5. The shape of the data
+
+Fine-tuning needs no new machinery — just the right data and a loss masked to the
+response. Here is what one training example looks like, and the masking, in
+miniature.
+
+<PyodideEditor
+  initialCode={`# An instruction-tuning example is a (prompt, response) pair. The model is
+# trained to predict the RESPONSE tokens; the prompt is masked out of the loss.
+
+prompt   = "Question: What is the capital of France?\\nAnswer:"
+response = " Paris."
+
+# Tokenise (toy: split on characters of the words for illustration).
+tokens = (prompt + response).split()
+n_prompt = len(prompt.split())
+
+# A mask: 0 on prompt tokens (don't train on these), 1 on response tokens.
+mask = [0] * n_prompt + [1] * (len(tokens) - n_prompt)
+
+for tok, m in zip(tokens, mask):
+    role = "train" if m else "  -  "
+    print(f"[{role}] {tok}")
+
+print("\\nLoss is averaged over the", sum(mask),
+      "response tokens only — the model learns to answer, not to ask.")
+`}
+/>
+
+Run the same next-token training you built in Chapter 10 on data like this, with the
+prompt masked out, and a base model becomes an instruction-follower. The
+architecture never changed; only what we trained it on.
+
+## 6. Problems
+
+### Problem 1 — Knowledge vs behaviour
+
+Base GPT-2 in Figure 12.1 fails to answer cleanly. Is that a failure of knowledge or
+of behaviour? Design a one-sentence test (in principle) that would distinguish "the
+model doesn't know the answer" from "the model knows but won't comply."
+
+<details>
+  <summary>Show solution</summary>
+
+It's primarily a failure of behaviour. To distinguish the two, present the same fact
+as a *continuation* rather than a *command* — e.g. feed *"The capital of France is"*
+and see whether *Paris* is the top next token (it largely is). If the model
+completes the fact when it's framed as text but won't produce it when framed as a
+question, the knowledge is present and only the instruction-following behaviour is
+missing — exactly what SFT fixes.
+
+</details>
+
+### Problem 2 — Why mask the prompt?
+
+In §5 the loss is computed only on response tokens. What would go wrong if you
+trained on the prompt tokens too, and why does masking them lead to a better
+assistant?
+
+<details>
+  <summary>Show solution</summary>
+
+Training on prompt tokens would push the model to get better at *generating
+instructions* — modelling the distribution of user requests — which is not the job
+and dilutes the signal we care about. Masking focuses every gradient on "given this
+request, produce this response," so the model's capacity goes toward answering well
+rather than toward predicting what users tend to ask.
+
+</details>
+
+---
+
+*Next: Chapter 13 — Learning from preferences.* Imitation gets you a model that
+answers; to make it answer *well* — helpful, honest, harmless — you train it on
+which of two responses people prefer.

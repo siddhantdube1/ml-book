@@ -71,6 +71,8 @@ export const BUILT = new Set<string>([
   '9-the-forward-pass',
   '10-pretraining',
   '11-scaling-laws',
+  '12-fine-tuning',
+  '13-preferences-rlhf',
   '14-sampling',
 ])
 
