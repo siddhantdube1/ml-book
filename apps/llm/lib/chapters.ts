@@ -59,7 +59,7 @@ export const parts: Part[] = [
 ]
 
 /** Slugs of chapters with shipped pages. Grows as chapters land. */
-export const BUILT = new Set<string>([])
+export const BUILT = new Set<string>(['4-attention'])
 
 export function chapterByNum(num: number): ChapterMeta | undefined {
   return chapters.find((c) => c.num === num)

@@ -1,0 +1,252 @@
+import AttentionMap from '@/components/AttentionMap'
+import { PyodideEditor } from '@trilogy/book-kit/code'
+
+export const metadata = {
+  title: 'Attention',
+  description:
+    'How a token looks at other tokens. Query, key, value, and the soft lookup at the heart of every transformer — with a real GPT-2 attention map you can drag through, the math grounded in intuition, and attention implemented from scratch in NumPy.',
+  openGraph: {
+    title: 'Attention',
+    description:
+      'An interactive walk-through of self-attention — query, key, value, and the soft lookup that lets tokens read each other. Real GPT-2 attention maps, live.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 4 · Part II — The Transformer
+</p>
+
+# Attention
+
+*How a token reads the rest of the sentence. The one mechanism that turned a
+pile of word vectors into something that understands language.*
+
+Read this sentence: *The trophy didn't fit in the suitcase because it was too
+big.* What does *it* point to — the trophy, or the suitcase? You answered
+instantly, and you answered *trophy*. Now read this one: *The trophy didn't fit
+in the suitcase because it was too small.* One word changed, and *it* flipped to
+*suitcase*.
+
+To resolve that pronoun you did something specific: you let the word *it* reach
+back across the sentence and pull in the words that give it meaning. You didn't
+read left to right and forget; you let later words *look at* earlier ones. That
+looking-back is the whole idea of this chapter. It is called **attention**, and
+it is the mechanism that the entire transformer — and every large language model
+built on one — is organised around.
+
+By the end of this chapter you will know exactly what a token "looking at"
+another token means, down to the arithmetic, and you will have watched a real
+GPT-2 do it. You will have implemented attention from scratch in a dozen lines of
+NumPy. And the word *it* will have reached across a sentence, in front of you, and
+grabbed the word it needed.
+
+## 1. The problem attention solves
+
+In the last chapter each token became a vector — a point in space that captures
+something about the word's meaning. But a word's meaning is not fixed. *Bank*
+near *river* is a slope of earth; *bank* near *money* is a building. The vector
+for *bank* coming out of the embedding table is the same in both sentences. To be
+useful, a token's representation has to *absorb its context* — it has to become a
+blend of itself and the words around it.
+
+So the job is this: take a sequence of token vectors, and produce a new sequence
+where each vector has been enriched by the others. The naive version is easy —
+just average every token with all the others. But a flat average is hopeless: it
+treats *the* and *trophy* as equally relevant to *it*, when only one of them
+matters. What we want is a **weighted** average, where each token decides, for
+itself, how much to draw from every other token. The weights should be different
+for every token, and they should depend on the actual content.
+
+That is attention: a learned, content-dependent, weighted average. Everything
+that follows is just *how* those weights get computed.
+
+## 2. Soft lookup: query, key, value
+
+Here is the mechanism, in plain terms first.
+
+Every token produces three vectors. A **query** — what am I looking for? A
+**key** — what do I have to offer? And a **value** — what will I actually hand
+over if you pick me? The names come from databases, and the analogy is exact: a
+query is matched against keys, and the matching entries return their values.
+
+A token's query is compared against *every* token's key by taking a dot product.
+A large dot product means the query and key point the same way — a strong match.
+Those match scores are pushed through a **softmax**, which turns them into
+positive weights that sum to one. Finally, the token's new representation is the
+sum of all the values, weighted by those scores. A token has now read the whole
+sentence and kept a custom-weighted blend of it.
+
+Crucially, the weights are *soft*. The token doesn't pick one other token; it
+spreads its attention, mostly onto a few and a little onto the rest. *it* can
+pour 60% of its attention onto *suitcase*, 20% onto *trophy*, and dribble the
+rest across the sentence. That softness is what makes attention differentiable —
+and so trainable by the gradient descent of the previous book.
+
+## 3. Watch it happen
+
+Enough words. Below is a real attention map from GPT-2 — not an illustration, the
+actual weights from a 124-million-parameter model running on the trophy sentence.
+The grid is the full picture: row *i*, column *j* is how much token *i* (the
+query) attends to token *j* (the key). Brighter means more. Drag the **layer** and
+**head** sliders, and hover any row to see, below, what that token is looking at.
+
+<AttentionMap
+  fixtureId="trophy-suitcase"
+  initialLayer={9}
+  initialHead={0}
+  focusToken="it"
+  caption="Figure 4.1 — GPT-2 self-attention on the trophy sentence. At layer 9, head 0, the token “it” sends most of its attention to “suitcase”. Drag to other layers and heads; many do something completely different."
+/>
+
+Sit with the default view for a moment. We have opened on layer 9, head 0, with
+the query token *it* selected — and *it* is reaching back across nine words to
+land squarely on *suitcase*. This single head, somewhere in the middle of the
+network, has learned to do coreference. Nobody told it to. It fell out of
+predicting the next token across billions of words of text.
+
+Now explore. Slide to the early layers and the picture changes entirely: tokens
+attend mostly to their immediate neighbours, or pile onto the very first token (a
+kind of resting position heads adopt when they have nothing to say). Different
+heads in the same layer attend to wildly different things — position, syntax,
+repetition. That a single model holds 144 of these heads, each a small specialist,
+is the subject of the next chapter.
+
+## 4. The same thing, as an equation
+
+Now that you have felt it, here is the formula. Stack the per-token queries into a
+matrix $Q$, the keys into $K$, the values into $V$. Then
+
+$$\text{Attention}(Q, K, V) = \text{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}\right)V.$$
+
+Read it against what you just watched. $QK^\top$ is every query dotted with every
+key — the raw match scores, one for each cell in the grid above. The softmax,
+applied along each row, turns each token's scores into the weights you saw summing
+to one. Multiplying by $V$ takes the weighted average of the value vectors. That's
+the entire operation.
+
+The only piece without an obvious counterpart is the $\sqrt{d_k}$. Dot products
+grow with dimension, and large scores make the softmax peaky — almost one-hot —
+which starves the gradient. Dividing by the square root of the key dimension keeps
+the scores in a sane range. It is a scaling convenience, not a deep idea, but
+leave it out and training stalls.
+
+## 5. Looking only backwards
+
+Notice what the grid above never shows: anything above the diagonal. Token 3 can
+attend to tokens 1, 2, and 3, but never to token 4. This is the **causal mask**,
+and it exists because the model's only job is to predict the *next* token. If a
+token could see the future, predicting it would be cheating — the answer would
+leak straight into the input.
+
+Mechanically, the mask is brutal and simple: before the softmax, set every score
+where $j > i$ to $-\infty$. The softmax sends those to exactly zero, and each
+token is sealed off from everything that comes after it. The lower-triangular
+shape you see in every map is the visible fingerprint of that rule.
+
+## 6. Implementing it yourself
+
+Attention is far simpler than its reputation. Here is the whole thing — scaled
+dot-product attention with a causal mask — in NumPy. Run it and read the printed
+weight matrix: each row sums to one, and the upper triangle is zero, exactly like
+the maps above.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def softmax(x, axis=-1):
+    x = x - x.max(axis=axis, keepdims=True)
+    e = np.exp(x)
+    return e / e.sum(axis=axis, keepdims=True)
+
+def attention(Q, K, V, causal=True):
+    d_k = Q.shape[-1]
+    scores = Q @ K.T / np.sqrt(d_k)          # every query dotted with every key
+    if causal:
+        n = scores.shape[0]
+        mask = np.triu(np.ones((n, n)), k=1).astype(bool)
+        scores[mask] = -np.inf               # no looking at the future
+    weights = softmax(scores, axis=-1)       # rows sum to 1
+    return weights @ V, weights
+
+# Five tokens, each a small random query/key/value vector.
+rng = np.random.default_rng(0)
+n, d = 5, 8
+Q, K, V = rng.standard_normal((n, d)), rng.standard_normal((n, d)), rng.standard_normal((n, d))
+
+out, weights = attention(Q, K, V)
+print("attention weights (rows sum to 1, upper triangle zero):")
+print(np.round(weights, 2))
+print("\\nrow sums:", np.round(weights.sum(axis=1), 3))
+print("output shape:", out.shape)
+`}
+/>
+
+That function, run over and over with learned projections producing $Q$, $K$, and
+$V$, is the beating heart of a transformer. The rest of the architecture — which
+we build over the next chapters — is scaffolding around this one weighted average.
+
+## 7. Problems
+
+### Problem 1 — Read a different head
+
+Open Figure 4.1 again. Find a layer and head where the token *it* does **not**
+attend to *suitcase* — where instead it attends to the first token, or to the word
+right before it. You don't need code; just describe what you found and which
+(layer, head) it was.
+
+<details>
+  <summary>Show solution</summary>
+
+Early layers are the easiest place to look. At layer 0, most heads have *it*
+attending heavily to the first token *The* or to its immediate predecessor
+*because* — generic positional behaviour, not meaning. The coreference link to
+*suitcase* only sharpens in the middle-to-late layers (it peaks at layer 9, head
+0). This is the general pattern across transformers: early layers handle position
+and surface form, later layers handle meaning and reference.
+
+</details>
+
+### Problem 2 — Temperature in disguise
+
+The $\sqrt{d_k}$ divisor controls how peaky the attention weights are. Modify the
+implementation: multiply the scores by a factor before the softmax and watch the
+weights. What happens as the factor grows large? As it shrinks toward zero?
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def softmax(x, axis=-1):
+    x = x - x.max(axis=axis, keepdims=True)
+    e = np.exp(x)
+    return e / e.sum(axis=axis, keepdims=True)
+
+rng = np.random.default_rng(0)
+scores = rng.standard_normal(6)
+
+for factor in [0.1, 1.0, 10.0]:
+    w = softmax(scores * factor)
+    print(f"factor {factor:>4}:  {np.round(w, 3)}")
+
+# Your turn: what is each row's largest weight? What does factor -> infinity give?
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+Large factors make the softmax approach a hard *argmax*: nearly all the weight
+collapses onto the single highest-scoring token (one-hot). Small factors flatten
+it toward a uniform average over all tokens. The factor is exactly an inverse
+temperature — the same dial we'll meet again in Chapter 14 when we sample the
+model's output distribution. Dividing by $\sqrt{d_k}$ is just choosing a sensible
+default temperature so that, at initialisation, attention is neither uniform mush
+nor a brittle one-hot.
+
+</details>
+
+---
+
+*Next: Chapter 5 — Multi-head self-attention.* You just watched one head do
+coreference. A transformer runs dozens in parallel, each free to specialise — and
+then stacks the whole arrangement many layers deep.

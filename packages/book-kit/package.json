@@ -8,6 +8,7 @@
     "./theme/globals.css": "./src/theme/globals.css",
     "./nav": "./src/nav/index.ts",
     "./code": "./src/code/index.ts",
+    "./model": "./src/model/index.ts",
     "./mdx": "./src/mdx/index.ts",
     "./tailwind-preset": "./src/design/tailwind-preset.ts"
   },
