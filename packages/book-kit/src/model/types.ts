@@ -44,3 +44,29 @@ export type NextTokenFixture = {
   context: string
   topk: TokenProb[]
 }
+
+/** One word in an embedding projection: 2D display coords + true neighbours. */
+export type EmbeddingWord = {
+  text: string
+  group: string
+  /** PCA-projected display coordinates, normalised to [0, 1]. */
+  x: number
+  y: number
+  /** Nearest neighbours computed in the full embedding space (cosine). */
+  neighbours: string[]
+}
+
+export type Analogy = {
+  a: string
+  b: string
+  c: string
+  want: string
+  predicted: string[]
+  hit: boolean
+}
+
+export type EmbeddingFixture = {
+  model: string
+  words: EmbeddingWord[]
+  analogies: Analogy[]
+}

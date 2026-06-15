@@ -62,6 +62,7 @@ export const parts: Part[] = [
 export const BUILT = new Set<string>([
   '1-what-is-a-language-model',
   '2-tokenization',
+  '3-embeddings',
   '4-attention',
   '14-sampling',
 ])

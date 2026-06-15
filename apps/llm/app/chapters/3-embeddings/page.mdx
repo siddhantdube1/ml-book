@@ -1,0 +1,191 @@
+import Embedding2D from '@/components/Embedding2D'
+import { PyodideEditor } from '@trilogy/book-kit/code'
+
+export const metadata = {
+  title: 'Embeddings: meaning as geometry',
+  description:
+    'Turning token ids into vectors, where distance is similarity and directions are relationships. Real GPT-2 embeddings you can explore in 2D — nearest neighbours and king − man + woman ≈ queen — with cosine similarity built from scratch.',
+  openGraph: {
+    title: 'Embeddings: meaning as geometry',
+    description:
+      'How words become vectors: a 2D map of real GPT-2 embeddings where similar words cluster and analogies are literal arithmetic.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 3 · Part I — From text to a language model
+</p>
+
+# Embeddings: meaning as geometry
+
+*Each token becomes a point in space, and the arrangement of those points turns
+out to encode a startling amount of meaning.*
+
+A token id is just a number — *cat* might be 9246, *dog* 3290. Those integers are
+labels, nothing more; 9246 is no closer to 3290 than to 17. But *cat* and *dog*
+are close in meaning, and we need the model to know that. The fix is to stop using
+the id directly and instead attach to each token a **vector** — a list of, say,
+768 numbers — and let training decide what those numbers should be.
+
+This vector is the token's **embedding**, and the whole point is *geometry*: words
+that behave similarly end up as nearby points, and — more surprisingly — the
+*directions* between points come to encode relationships. Meaning, in a language
+model, is literally a location in space.
+
+By the end of this chapter you will have explored a map of real GPT-2 embeddings,
+watched *king − man + woman* land on *queen* as actual arithmetic, and computed
+similarity between words yourself.
+
+## 1. From ids to vectors
+
+Why not feed the id straight in? Because to a network, 9246 and 9247 are as
+unrelated as any two numbers — and the obvious fix, a **one-hot vector** (a 50,000-
+long array of zeros with a single 1), is no better: every word sits the same
+distance from every other, all mutually orthogonal, no notion of similar or
+different. One-hot encodes identity and nothing else.
+
+So we keep a big table — the **embedding matrix** — with one row per vocabulary
+token and, say, 768 columns. Looking up a token is just grabbing its row. Those
+rows start as random noise and are *learned*: every time the model trains on
+next-token prediction (Chapter 1), gradients tug each embedding a little, and over
+billions of words the geometry organises itself. Nobody specifies that *cat* should
+sit near *dog*. It falls out of the two words appearing in similar contexts.
+
+## 2. The geometry of meaning
+
+Here is GPT-2's actual embedding table, for a curated set of words, projected down
+to two dimensions so we can see it. The colours mark categories we never told the
+model about. Hover any word to see its true nearest neighbours — computed in the
+full 768-dimensional space, not the flattened picture.
+
+<Embedding2D
+  caption="Figure 3.1 — Real GPT-2 token embeddings, projected to 2D with PCA. Animals cluster with animals, numbers with numbers, capitals with capitals — structure that emerged purely from predicting text. Hover a word for its nearest neighbours in the true 768-d space."
+/>
+
+The clusters are not an accident of the projection — they are in the real vectors.
+Hover *cat* and its neighbours are *dog, tiger, bird, fish*. Hover *three* and you
+get *four, two, five*. The model has sorted the vocabulary into something close to
+a semantic atlas, with no labels, no dictionary, no supervision beyond "predict
+what comes next." Similar words share contexts; shared contexts pull their
+embeddings together.
+
+## 3. Directions are relationships
+
+Now the surprising part. It is not only *distance* that means something —
+*direction* does too. Look at the arithmetic panel under the map: take the vector
+for *king*, subtract *man*, add *woman*, and the nearest embedding to the result is
+*queen*. The displacement from *man* to *king* — whatever "royalty" is, as a
+direction in this space — is very nearly the same displacement as from *woman* to
+*queen*.
+
+The same holds for *Paris − France + Japan ≈ Tokyo*: there is a consistent
+"capital-of" direction, and a "gender" direction, and many others, all running in
+parallel across the space. These are *real* GPT-2 vectors doing this, not a
+textbook idealisation. That a network trained only to autocomplete discovered such
+clean, composable structure is one of the genuinely beautiful facts about language
+models — and a first hint of why the geometry, not the tokens, is where the
+understanding lives.
+
+## 4. Static now, contextual later
+
+One honest limitation. The embedding we just explored is *static*: the table gives
+*bank* a single fixed vector, whether the sentence is about a river or a vault. But
+*bank* plainly means different things in those two sentences, and a single point
+can't capture both.
+
+This is exactly the gap the rest of the transformer closes. The embedding is only
+the **input** — the starting point. The next chapter's mechanism, attention, lets
+each token's vector absorb its neighbours, so that the representation of *bank*
+*becomes* river-flavoured or money-flavoured depending on what surrounds it. Static
+embeddings are the raw material; context is what the machine adds.
+
+## 5. Computing similarity yourself
+
+"Nearby" needs a definition. The standard one is **cosine similarity** — the cosine
+of the angle between two vectors, which ignores their lengths and asks only whether
+they point the same way. Here it is from scratch, finding nearest neighbours in a
+tiny hand-built space.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+# A tiny, made-up "embedding space" — 3 numbers per word.
+emb = {
+    "cat":   np.array([0.9, 0.1, 0.2]),
+    "dog":   np.array([0.8, 0.2, 0.1]),
+    "lion":  np.array([0.7, 0.1, 0.4]),
+    "red":   np.array([0.1, 0.9, 0.1]),
+    "blue":  np.array([0.2, 0.8, 0.2]),
+    "three": np.array([0.1, 0.1, 0.9]),
+}
+
+def cosine(a, b):
+    return a @ b / (np.linalg.norm(a) * np.linalg.norm(b))
+
+def nearest(word, k=2):
+    scores = [(w, cosine(emb[word], v)) for w, v in emb.items() if w != word]
+    return sorted(scores, key=lambda x: -x[1])[:k]
+
+for w in ["cat", "red", "three"]:
+    nbrs = nearest(w)
+    print(f"{w:6} -> " + ", ".join(f"{n} ({s:.2f})" for n, s in nbrs))
+
+# Analogy: cat is to lion as red is to ? (direction arithmetic)
+target = emb["lion"] - emb["cat"] + emb["red"]
+best = max((w for w in emb if w not in ("lion", "cat", "red")),
+           key=lambda w: cosine(emb[w], target))
+print("\\ncat:lion :: red:?  ->", best)
+`}
+/>
+
+Scale that from three made-up dimensions to 768 learned ones, and from six words to
+fifty thousand, and you have the embedding layer of a real model — the first thing
+that happens to your tokens after they come out of the tokenizer.
+
+## 6. Problems
+
+### Problem 1 — Read the map
+
+Using Figure 3.1, find a word whose nearest neighbours surprise you, and one whose
+neighbours are exactly what you'd expect. What does it tell you that the *country*
+and *capital* groups sit in distinct clusters, yet *Paris − France + Japan* still
+lands on *Tokyo*?
+
+<details>
+  <summary>Show solution</summary>
+
+Countries cluster with countries and capitals with capitals because, as words,
+they appear in similar contexts (*"visited France"*, *"flew to Tokyo"*). But the
+*capital-of* relationship is a consistent **direction** that connects the two
+clusters — France→Paris is parallel to Japan→Tokyo. So two things are true at once:
+similar *kinds* of word are near each other (clustering), and specific
+*relationships* are encoded as repeatable directions (analogy). Distance and
+direction carry different information.
+
+</details>
+
+### Problem 2 — Why cosine, not distance?
+
+Cosine similarity ignores vector length and looks only at angle. Modify the §5 code
+to scale one word's vector by 10× and compare what cosine similarity does versus
+plain Euclidean distance. Which is more stable, and why does that matter for
+embeddings?
+
+<details>
+  <summary>Show solution</summary>
+
+Scaling a vector leaves its *direction* unchanged, so cosine similarity is
+unaffected — but Euclidean distance balloons. Embedding magnitudes partly track
+incidental things like token frequency, which we usually don't want to dominate
+"similarity". Cosine isolates the part we care about — orientation, i.e. meaning —
+which is why it's the standard similarity for embeddings (and, in Chapter 6 of the
+companion ML book, why direction-based reasoning recurs).
+
+</details>
+
+---
+
+*Next: Chapter 4 — Attention.* Static embeddings give each token a fixed meaning;
+attention is the mechanism that lets a token's vector finally take its context into
+account.

@@ -3,6 +3,9 @@ export type {
   AttentionFixture,
   TokenProb,
   NextTokenFixture,
+  EmbeddingWord,
+  Analogy,
+  EmbeddingFixture,
 } from './types'
 export {
   temperatureProbs,
