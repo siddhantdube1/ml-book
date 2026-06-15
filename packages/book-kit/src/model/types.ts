@@ -63,6 +63,22 @@ export type LogitLensFixture = {
   layers: { layer: number; top: LabelledProb[] }[]
 }
 
+/** Per-token training signal: how surprised the model was by each real token. */
+export type SurprisalToken = {
+  text: string
+  /** Probability the model assigned to this actual token (null for the first). */
+  prob: number | null
+  /** Surprisal in bits, −log2(prob) (null for the first token). */
+  surprisal: number | null
+}
+
+export type SurprisalFixture = {
+  id: string
+  model: string
+  text: string
+  tokens: SurprisalToken[]
+}
+
 /** One greedy generation step: the chosen token + the top alternatives. */
 export type GenStep = {
   chosen: string

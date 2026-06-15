@@ -1,0 +1,161 @@
+import Surprisal from '@/components/Surprisal'
+import { PyodideEditor } from '@trilogy/book-kit/code'
+
+export const metadata = {
+  title: 'Pretraining',
+  description:
+    'Where a language model’s competence comes from: predicting the next token across a large fraction of the internet. Self-supervision, the surprisal signal shown on real GPT-2, and the cross-entropy objective computed from scratch.',
+  openGraph: {
+    title: 'Pretraining',
+    description:
+      'How language models learn: self-supervised next-token prediction at scale. The training signal, visualised on real GPT-2.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 10 · Part III — How they're trained
+</p>
+
+# Pretraining
+
+*The architecture is an empty machine. Pretraining is the long process that fills
+it — by playing the next-token game across much of what humanity has written.*
+
+We have built a transformer that turns a context into a next-token distribution
+(Part II), but with random weights it predicts nonsense. Everything a model knows —
+grammar, facts, the rudiments of reasoning — is installed in one enormous training
+phase called **pretraining**: show the model staggering amounts of text and, at
+every position, nudge its weights to better predict the token that actually came
+next.
+
+That is the whole loop. There is no separate "teach it facts" step. The model
+learns the capital of France because the string *the capital of France is Paris*
+appears in its training data, and predicting *Paris* well requires storing that
+fact. Competence is a by-product of relentless next-token prediction.
+
+By the end of this chapter you will have seen the literal training signal on a real
+model and computed the objective that pretraining minimises.
+
+## 1. Self-supervision: labels for free
+
+The reason this scales to trillions of examples is that it needs **no human
+labels**. For supervised learning you normally pay people to annotate data; here
+the data annotates itself. Take any sentence, and for every position the "correct
+answer" is simply the next token already sitting there. A document of 1,000 tokens
+is 1,000 training examples, free. Point the model at a large fraction of the web,
+books, and code, and you have more supervision than any labelling budget could buy.
+This is **self-supervised** learning, and it is the trick that made scale possible.
+
+## 2. The training signal, made visible
+
+What does the model actually get corrected on? At each position it predicts a
+distribution; we look at the probability it gave to the *real* next token, and the
+loss is how *surprised* it was — low if it expected the token, high if it didn't.
+Here is that surprisal on a real GPT-2, token by token:
+
+<Surprisal
+  fixtureIds={['france', 'water', 'ghost']}
+  caption="Figure 10.1 — Per-token surprisal from real GPT-2 (in bits). Predictable tokens — ‘Paris’ after ‘the capital of France is’, ‘oxygen’ after ‘hydrogen and’ — are dim; genuinely uncertain ones are bright. Training is the long process of dimming this picture." />
+
+Read the bright spots: they are exactly where the model was *wrong* or unsure, and
+so exactly where training pushes hardest. Predictable continuations are already
+dim — the model loses little there. Pretraining, billions of times over, is nothing
+but the gradual dimming of this picture across all of language. The average
+surprisal has a name — it is the **cross-entropy loss**, and two-to-its-power is
+**perplexity**, the headline number for how well a model predicts text.
+
+## 3. The data, and why it matters
+
+The other half of pretraining is the corpus. Modern models train on trillions of
+tokens scraped from the web, books, and code, then aggressively filtered and
+deduplicated — because the model learns *whatever the data contains*, including its
+mistakes and biases. Quality and diversity of data turn out to matter as much as
+raw quantity: a model is a compression of its training set, and you cannot compress
+your way to knowledge that was never in there.
+
+## 4. What pretraining actually installs
+
+Because predicting text *well* requires modelling whatever produced the text
+(Chapter 1), the pressure to lower that loss installs a hierarchy of competence —
+first spelling and grammar, then facts and associations, then fragments of
+reasoning — all as side effects of compression. None of it is targeted. It emerges
+because each capability happens to lower next-token loss on the kind of text where
+it's needed. How far this goes as you spend more is the subject of the next chapter.
+
+## 5. Computing the objective
+
+Here is the loss pretraining minimises — cross-entropy and perplexity — over a
+handful of positions, from scratch.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+# Suppose at four positions the model gave these probabilities to the
+# token that actually came next:
+p_true = np.array([0.62, 0.09, 0.95, 0.30])
+
+# Surprisal (bits) of each token, and the average = cross-entropy.
+surprisal = -np.log2(p_true)
+cross_entropy = surprisal.mean()
+perplexity = 2 ** cross_entropy
+
+for p, s in zip(p_true, surprisal):
+    print(f"p={p:.2f}  ->  {s:.2f} bits of surprise")
+print(f"\\ncross-entropy = {cross_entropy:.3f} bits/token")
+print(f"perplexity    = {perplexity:.2f}  (effective branching factor)")
+
+# Training lowers this: pretend the model improves on the worst token.
+p_better = p_true.copy(); p_better[1] = 0.40
+print("\\nafter learning the hard token:",
+      f"perplexity {2 ** (-np.log2(p_better)).mean():.2f}")
+`}
+/>
+
+Lowering that one number, averaged over a corpus the size of the internet, is the
+entire goal of pretraining. Everything the model can do is a means to that end.
+
+## 6. Problems
+
+### Problem 1 — Read the signal
+
+In Figure 10.1, switch between sentences and find the single most surprising token
+and the least surprising. Why is the model so unsurprised by some tokens, and what
+does it mean that early words in a sentence tend to be surprising?
+
+<details>
+  <summary>Show solution</summary>
+
+The least surprising tokens are highly constrained by context — *Paris* after *the
+capital of France is*, or *oxygen* after *hydrogen and* — where almost only one
+word fits. The most surprising tend to be content words with little preceding
+context, especially early in the sentence, where the model has little to condition
+on. High surprisal marks exactly the positions where there's something to learn;
+predictable positions contribute almost nothing to the loss.
+
+</details>
+
+### Problem 2 — Perplexity intuition
+
+A model with perplexity 20 is, loosely, "as confused as if choosing uniformly among
+20 words" at each step. Using §5, what perplexity does a model achieve if it always
+puts probability 1.0 on the correct token? What about a uniform guess over a 50,000-
+token vocabulary?
+
+<details>
+  <summary>Show solution</summary>
+
+Perfect prediction (p = 1.0 everywhere) gives surprisal 0 and perplexity
+2⁰ = **1** — no confusion at all. A uniform guess over 50,000 tokens gives
+surprisal log₂(50000) ≈ 15.6 bits and perplexity ≈ **50,000** — maximal confusion.
+Real models sit far below the uniform baseline (perplexities in the low tens or
+single digits on typical text), and pretraining is the process of pushing from the
+50,000 end toward the 1 end.
+
+</details>
+
+---
+
+*Next: Chapter 11 — Scaling laws.* If lowering this loss is the goal, how much does
+more compute, more data, and more parameters actually buy you? The answer turned out
+to be shockingly predictable.

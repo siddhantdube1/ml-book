@@ -1,0 +1,160 @@
+import ScalingLaws from '@/components/ScalingLaws'
+import { PyodideEditor } from '@trilogy/book-kit/code'
+
+export const metadata = {
+  title: 'Scaling laws',
+  description:
+    'The empirical discovery that powered the LLM era: test loss falls as a smooth power law in compute, data, and parameters — predictable across orders of magnitude. Compute-optimal training (Chinchilla) and fitting a power law from scratch.',
+  openGraph: {
+    title: 'Scaling laws',
+    description:
+      'Why bigger models trained on more data get predictably better: power-law scaling and compute-optimal training.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 11 · Part III — How they're trained
+</p>
+
+# Scaling laws
+
+*The single most consequential empirical fact about language models: make them
+bigger and feed them more, and the loss falls — smoothly, predictably, for orders
+of magnitude.*
+
+You might expect that improving a model is a craft — clever architectures, lucky
+tricks, diminishing and erratic returns. For language models, the dominant factor
+turned out to be embarrassingly blunt: **scale**. Across an enormous range, test
+loss falls as a smooth **power law** in three quantities — the amount of compute,
+the number of parameters, and the number of training tokens. Not noisily; on a
+log-log plot, a near-straight line.
+
+This predictability is why the last several years happened the way they did. If you
+can measure the loss of small models and *extrapolate* the curve, you can justify
+spending a hundred million dollars on a big one before you train it — because you
+already know, roughly, what loss you'll get.
+
+By the end of this chapter you will have explored the curve, met compute-optimal
+training, and fit a scaling law yourself.
+
+## 1. The curve
+
+Here is the shape. Loss as a function of training compute, falling toward an
+**irreducible floor** — the entropy of language itself, which no amount of compute
+can beat.
+
+<ScalingLaws caption="Figure 11.1 — Illustrative scaling curve, shaped like the empirical results of Kaplan et al. and Hoffmann et al. Loss falls as a power of compute toward a floor; the readouts show the compute-optimal model size and token count for each budget." />
+
+The defining feature is *predictability*. The relationship is well described by
+
+$$L(C) \approx E + \left(\frac{C_0}{C}\right)^{\alpha},$$
+
+where $E$ is the irreducible loss, $C$ the compute, and $\alpha$ a small exponent.
+Because the exponent is small, gains slow down — each further drop in loss costs
+roughly an order of magnitude more compute — but they do not stop, and crucially
+they do not surprise. Slide the budget and watch the loss track the curve.
+
+## 2. Three knobs, one law
+
+The compute you spend is, to a good approximation, $C \approx 6ND$ — six times the
+number of parameters $N$ times the number of training tokens $D$. Loss follows a
+power law in each: bigger model, more data, more compute, lower loss. The three are
+linked, so the real question is not "how big a model?" but "given a fixed compute
+budget, how should I split it between model size and data?"
+
+## 3. Compute-optimal training
+
+The famous answer — from the *Chinchilla* paper — is that for a fixed compute
+budget there is an **optimal balance**: scale parameters and tokens *together*,
+roughly in proportion, at about 20 training tokens per parameter. The headline
+consequence was that many large models of the era were badly **undertrained** —
+too big for the data they saw. A smaller model trained on more tokens beat a larger
+one trained on fewer, at the same cost. The readouts under Figure 11.1 show this
+optimal split: as you slide the compute budget, the optimal parameter count and
+token count both rise together.
+
+## 4. Why it matters, and where it bends
+
+Scaling laws turned model-building into something closer to engineering: measure
+small, extrapolate, provision compute, predict the result. But they are empirical,
+not eternal. They assume abundant fresh data — and the highest-quality text is
+finite, a ceiling the field is now pressing against. And loss is not the same as
+usefulness: a smooth drop in next-token loss can produce *jumps* in apparent
+capability, which is its own active area of study. The curve is a remarkably
+reliable guide, right up until the regime where its assumptions stop holding.
+
+## 5. Fitting a scaling law
+
+A power law is a straight line in log-log space, so you fit one with ordinary linear
+regression on the logs.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+# Loss measured for a few small training runs (compute in FLOPs).
+C = np.array([1e18, 1e19, 1e20, 1e21])
+L = np.array([3.40, 3.05, 2.74, 2.47])
+
+# Assume L - E follows a power law in C; fit in log-log space.
+E = 1.5                          # assume the irreducible floor
+y = np.log(L - E)
+x = np.log(C)
+slope, intercept = np.polyfit(x, y, 1)
+alpha = -slope
+print(f"fitted exponent alpha = {alpha:.3f}")
+
+# Extrapolate: predict the loss at 1000x the largest run.
+C_new = 1e24
+L_pred = E + np.exp(intercept) * C_new ** slope
+print(f"predicted loss at C=1e24: {L_pred:.3f}")
+print("(measured the curve on cheap runs, predicted an expensive one)")
+`}
+/>
+
+That extrapolation — fit cheaply, predict expensively — is the entire business case
+for scale. You are reading the future loss of a model you have not yet trained.
+
+## 6. Problems
+
+### Problem 1 — Spend a budget
+
+Using Figure 11.1, pick a compute budget and read off the optimal parameters and
+tokens. Now imagine instead building a model twice as large at the same budget.
+Using the 20-tokens-per-parameter rule, what must give, and what does Chinchilla
+predict about the result?
+
+<details>
+  <summary>Show solution</summary>
+
+At a fixed compute budget ($C \approx 6ND$), doubling the parameters $N$ forces the
+token count $D$ to roughly halve. That pushes you well below the ~20-tokens-per-
+parameter optimum into the *undertrained* regime, and Chinchilla predicts a *worse*
+final loss than the compute-optimal split — you'd have done better with a smaller
+model trained on more data. Bigger is not free; it must be paid for in data.
+
+</details>
+
+### Problem 2 — Diminishing but not stopping
+
+The exponent $\alpha$ in §5 is small (well under 1). Using the fitted law, how much
+more compute does it take to halve the *reducible* loss $L - E$? What does that imply
+about the cost of each additional increment of quality?
+
+<details>
+  <summary>Show solution</summary>
+
+If $L - E \propto C^{-\alpha}$ with small $\alpha$, halving $L - E$ requires
+multiplying compute by $2^{1/\alpha}$ — and for $\alpha \approx 0.05$ that is
+$2^{20}$, about a million-fold. Each further increment of quality costs
+exponentially more compute. Returns diminish sharply, which is why progress leans on
+ever-larger compute budgets and on changing the game (better data, new objectives)
+rather than riding a single curve forever.
+
+</details>
+
+---
+
+*Next: Chapter 12 — Fine-tuning and instruction-tuning.* A pretrained model is a
+brilliant mimic that won't take instructions. Turning it into something that
+answers you is a second, smaller kind of training.

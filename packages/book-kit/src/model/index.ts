@@ -7,6 +7,8 @@ export type {
   Analogy,
   EmbeddingFixture,
   LabelledProb,
+  SurprisalToken,
+  SurprisalFixture,
   LogitLensFixture,
   GenStep,
   GenerationFixture,

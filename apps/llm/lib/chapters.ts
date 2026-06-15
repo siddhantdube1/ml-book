@@ -69,6 +69,8 @@ export const BUILT = new Set<string>([
   '7-depth',
   '8-positional-information',
   '9-the-forward-pass',
+  '10-pretraining',
+  '11-scaling-laws',
   '14-sampling',
 ])
 
