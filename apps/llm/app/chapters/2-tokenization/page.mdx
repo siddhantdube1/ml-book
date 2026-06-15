@@ -1,0 +1,195 @@
+import LiveTokenizer from '@/components/LiveTokenizer'
+import { PyodideEditor } from '@trilogy/book-kit/code'
+
+export const metadata = {
+  title: 'Tokenization',
+  description:
+    'A language model never sees letters — it sees tokens. How byte-pair encoding chops text into subword pieces, why that explains spelling mistakes and arithmetic errors, with a live tokenizer you can type into and BPE built from scratch.',
+  openGraph: {
+    title: 'Tokenization',
+    description:
+      'Why a language model can\'t spell: byte-pair encoding, subword tokens, and the live tokenizer that shows exactly what the model reads.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 2 · Part I — From text to a language model
+</p>
+
+# Tokenization
+
+*Before a model can read a word, the word has to become numbers. How that
+conversion happens explains some of the strangest things models get wrong.*
+
+Ask a strong language model how many times the letter *r* appears in
+*strawberry*, and there is a decent chance it says two. This is not a reasoning
+failure — the model can do far harder things. It is a *perception* failure. The
+model never saw the letters of *strawberry* at all. It saw a couple of opaque
+chunks, and counting letters inside a chunk it cannot see into is genuinely hard.
+
+Everything a model knows about language, it knows through **tokens** — the units
+it actually reads. A token is usually a common word or a fragment of one, and the
+process of chopping raw text into tokens is **tokenization**. It is the model's
+sense organ: the resolution at which it perceives text. Get a feel for it and a
+whole class of model quirks — spelling, arithmetic, the cost of other languages —
+stops being mysterious.
+
+By the end of this chapter you will have typed into a real tokenizer and watched
+your words shatter into pieces, you will understand the algorithm that draws the
+boundaries, and you will have built that algorithm yourself.
+
+## 1. Why not just use characters, or words?
+
+To feed text to a neural network it has to become a sequence of integers, each
+mapping to a vector (Chapter 3). There are two obvious ways, and both are bad.
+
+**Characters.** Vocabulary of about a hundred symbols — tiny and tidy. But now a
+short paragraph is a thousand tokens long, and since attention's cost grows with
+the *square* of the sequence length (Chapter 15), that length is ruinously
+expensive. Worse, the model has to relearn that *c-a-t* means cat from scratch,
+spelling out everything.
+
+**Whole words.** Sequences are short, but the vocabulary explodes — hundreds of
+thousands of words, plus every plural, tense, typo, and proper noun. And the first
+time the model meets a word that wasn't in its vocabulary, it has no token for it
+at all.
+
+The fix is to land in between: a **subword** vocabulary. Common words get their
+own single token; rare words break into a handful of familiar pieces. Frequent
+text stays short; nothing is ever unrepresentable, because in the worst case a
+word falls back to individual characters. The standard way to build such a
+vocabulary is **byte-pair encoding**.
+
+## 2. Byte-pair encoding
+
+BPE starts from the smallest pieces — bytes — and *greedily merges*. Count every
+adjacent pair of symbols in a big corpus, find the most frequent pair, and fuse it
+into a single new symbol. Repeat, tens of thousands of times. Early merges glue
+letters into common chunks (*t* + *h* → *th*); later ones assemble whole frequent
+words. The merge list you end up with *is* the tokenizer.
+
+Here is the real thing — GPT-2's tokenizer, running in your browser. Type
+anything and watch where the boundaries fall.
+
+<LiveTokenizer
+  initialText="The cat sat on the mat."
+  caption="Figure 2.1 — GPT-2's byte-pair tokenizer. Each coloured chip is one token; ␣ marks a leading space, which the tokenizer treats as part of the word. Try the presets and watch the chars-per-token ratio move."
+/>
+
+Click through the presets. *Strawberry* is not one token — it is *st·raw·berry*,
+three chunks, which is exactly why counting its letters is hard. The long word
+shatters into many pieces. The digits of a number often split one by one — which
+is half the reason models fumble arithmetic. And the leading space matters: *cat*
+at the start of a sentence and *␣cat* mid-sentence are *different tokens*, because
+the tokenizer folds the space into the word.
+
+## 3. What tokenization explains
+
+Once you see text the way the model does, several quirks line up.
+
+**Spelling and letter games.** Operations *inside* a token — reversing a word,
+counting letters, finding rhymes — ask the model to see structure it was never
+shown. It can often fake it from memorised facts, but it is working blind.
+
+**Arithmetic.** When *1234* tokenizes as *12·34* in one number and *123·4* in
+another, the model can't rely on a stable place-value structure. Digit-level
+consistency is one reason newer tokenizers split numbers more carefully.
+
+**The cost of other languages.** BPE merges are learned from a mostly-English
+corpus, so English packs efficiently — many words are one token. Text in a
+language the tokenizer saw little of fragments into far more tokens for the same
+meaning, as the *not English* preset shows. Since you pay per token in compute and
+in money, the same paragraph can cost several times as much in one language as in
+another. Tokenization is quietly a fairness issue.
+
+## 4. Building BPE yourself
+
+The whole training algorithm is a merge loop: count pairs, merge the most common,
+repeat. Here it is on a tiny corpus — run it and watch the merges assemble larger
+and larger pieces out of characters.
+
+<PyodideEditor
+  initialCode={`from collections import Counter
+
+# A tiny corpus. We mark word ends with </w> so merges don't cross word
+# boundaries, and start from characters.
+corpus = "low lower lowest newer wider lowest lower".split()
+vocab = [list(word) + ["</w>"] for word in corpus]
+
+def most_common_pair(vocab):
+    pairs = Counter()
+    for word in vocab:
+        for a, b in zip(word, word[1:]):
+            pairs[(a, b)] += 1
+    return pairs.most_common(1)[0] if pairs else (None, 0)
+
+def merge(vocab, pair):
+    a, b = pair
+    out = []
+    for word in vocab:
+        merged, i = [], 0
+        while i < len(word):
+            if i < len(word) - 1 and word[i] == a and word[i + 1] == b:
+                merged.append(a + b); i += 2
+            else:
+                merged.append(word[i]); i += 1
+        out.append(merged)
+    return out
+
+for step in range(6):
+    pair, count = most_common_pair(vocab)
+    if pair is None:
+        break
+    print(f"merge {step + 1}: {pair[0]!r} + {pair[1]!r}  (seen {count}x)")
+    vocab = merge(vocab, pair)
+
+print("\\nfinal tokens for 'lowest':", vocab[corpus.index('lowest')])
+`}
+/>
+
+Scale that loop to billions of words and fifty thousand merges and you have a
+production tokenizer. The pieces it learns are not chosen by a linguist; they are
+whatever the statistics of text make frequent.
+
+## 5. Problems
+
+### Problem 1 — Predict the split
+
+Before typing them into Figure 2.1, predict whether each will be one token or
+several: *the*, *unhappiness*, *🍓*, *tokenization*, *2024*. Then check, and explain
+one that surprised you.
+
+<details>
+  <summary>Show solution</summary>
+
+*the* is a single token (one of the most frequent words). *unhappiness* splits
+into a few morphological pieces (*un·happiness* or similar). The emoji is several
+tokens — it doesn't even fit in one byte, so byte-level BPE spells it out in raw
+bytes. *tokenization* breaks into subwords. *2024* may be one token or two
+depending on the tokenizer's number handling. The usual surprise is the emoji or
+the digits: things that look "atomic" to us are nothing of the kind to the model.
+
+</details>
+
+### Problem 2 — The next merge
+
+In the §4 corpus, after the merges that the code prints, work out by hand which
+pair BPE would merge next, then verify by raising the loop's range.
+
+<details>
+  <summary>Show solution</summary>
+
+The next merge is whichever adjacent pair is now most frequent across the
+already-merged vocabulary — typically the one that finishes assembling a common
+fragment like `low` or `er</w>`. Raising the range prints it. The point is that
+each merge changes the pair counts, so the algorithm is greedy and order-dependent:
+the vocabulary it ends with is a path, not just a set.
+
+</details>
+
+---
+
+*Next: Chapter 3 — Embeddings.* Each of these token ids now has to become a vector
+of numbers — and the geometry of those vectors turns out to encode a startling
+amount of meaning.

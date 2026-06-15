@@ -1,0 +1,220 @@
+import SamplingExplorer from '@/components/SamplingExplorer'
+import { PyodideEditor } from '@trilogy/book-kit/code'
+
+export const metadata = {
+  title: 'Sampling and decoding',
+  description:
+    'A language model outputs a probability distribution, not a word. How you pick from it — greedy, temperature, top-k, top-p — is the difference between repetitive mush and fluent text. With a live GPT-2 distribution you can reshape, and the samplers built from scratch.',
+  openGraph: {
+    title: 'Sampling and decoding',
+    description:
+      'The creativity dial of a language model: temperature, top-k, and nucleus sampling, shown on a real GPT-2 next-token distribution you can reshape live.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 14 · Part IV — How they behave
+</p>
+
+# Sampling and decoding
+
+*A model gives you a distribution, not a word. Everything interesting about how
+text comes out lives in how you choose from it.*
+
+A language model never tells you the next word. At every step it hands you a
+*probability distribution* over the entire vocabulary — fifty thousand numbers,
+one per possible token, each saying "this is how likely I think this comes next."
+Turning that cloud of probabilities into a single concrete token is a separate
+decision, and it is entirely yours to make.
+
+This step is called **decoding**, and the choice matters more than people expect.
+The same model, on the same prompt, can produce a flat civil-servant monotone or a
+vivid, surprising paragraph, depending only on how you sample. Get it wrong in one
+direction and the model loops the same phrase forever; get it wrong in the other
+and it dissolves into nonsense. Somewhere between is fluent text.
+
+By the end of this chapter you will know the three dials every practitioner reaches
+for — temperature, top-k, and top-p — and you will have turned them on a real
+GPT-2 distribution and watched it deform. Then you will implement all three from
+scratch.
+
+## 1. The distribution is the output
+
+Recall from Chapter 4 that the model's final step is a softmax: raw scores
+(*logits*), one per vocabulary token, squashed into probabilities that sum to one.
+That distribution *is* the model's answer. Below is the actual one GPT-2 produces
+after a short prompt — its real top candidates, with the probability mass it
+assigns to each.
+
+<SamplingExplorer
+  fixtureIds={['once-upon', 'opposite-hot', 'capital-france', 'sky-is']}
+  caption="Figure 14.1 — GPT-2's next-token distribution. Temperature, top-k, and top-p reshape it live; press Sample to draw a token from whatever shape you've made. Switch contexts to feel how peaked or flat the model can be."
+/>
+
+Switch between contexts and notice how different they feel. After *The opposite of
+hot is*, the model is almost certain — one token, *cold*, towers over everything.
+After *Once upon a time, there was a*, it is genuinely unsure: dozens of nouns
+share the mass, none dominant. A good decoding strategy has to handle both the
+confident case and the wide-open one.
+
+## 2. Greedy, and why it fails
+
+The obvious strategy: always take the single most probable token. This is **greedy
+decoding**, and on the confident prompt it is exactly right — *cold* wins, done.
+
+But run greedy on open-ended text and it falls apart. Always taking the top token
+makes the model deterministic and, worse, repetitive: it finds a high-probability
+groove — *"the same thing, the same thing, the same thing"* — and never leaves it,
+because the locally-likeliest token keeps pointing back into the loop. Real
+language has variety that greedy decoding cannot produce, because variety requires
+sometimes *not* taking the most likely word.
+
+So we sample instead — draw a token in proportion to its probability. That restores
+variety, but now the long, junky tail of the distribution (those fifty thousand
+tokens, most near-zero but not *quite* zero) gets a vote. Sample raw and
+occasionally you draw genuine garbage. The dials that follow all exist to manage
+that tension: keep variety, kill the garbage.
+
+## 3. Temperature
+
+**Temperature** rescales the logits before the softmax — divide every logit by
+$T$, then normalise. It is the same inverse-temperature we met inside attention in
+Chapter 4, now applied to the output:
+
+$$p_i = \frac{\exp(z_i / T)}{\sum_j \exp(z_j / T)}.$$
+
+Drag the temperature slider above. Below $T = 1$ the distribution sharpens —
+probability rushes toward the top token, and at $T \to 0$ you recover greedy. Above
+$T = 1$ it flattens — the tail swells, unlikely tokens get a real chance, and the
+text grows wilder. Temperature is a single knob from *boring and safe* to *unhinged
+and surprising*, and most of the character of a model's output is set by where you
+put it.
+
+## 4. Top-k and top-p
+
+Temperature reshapes the *whole* distribution, tail included — crank it up for
+creativity and you also hand probability to genuinely bad tokens. The other two
+dials instead **truncate**: throw the tail away entirely, then sample only from
+what survives.
+
+**Top-k** keeps the $k$ highest-probability tokens and zeroes the rest. Simple, but
+$k$ is a blunt instrument — the right number of "reasonable" tokens is large when
+the model is unsure and tiny when it is confident, and a fixed $k$ can't be both.
+
+**Top-p** (nucleus sampling) fixes that by truncating on *mass* instead of count:
+keep the smallest set of top tokens whose probabilities add up to $p$ (say 0.9),
+and drop everything below. On the confident prompt that might be a single token; on
+the open one it might be forty. The set sizes itself to the model's certainty,
+which is why top-p is the modern default. Drag the top-k and top-p sliders above and
+watch tokens drop out — struck through — as the truncation bites.
+
+## 5. Implementing it yourself
+
+All three dials are a few lines over a vector of logits. Here they are; run it and
+watch the same logits become greedy, creative, or truncated depending on the knobs.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def softmax(z):
+    z = z - z.max()
+    e = np.exp(z)
+    return e / e.sum()
+
+def decode(logits, temperature=1.0, top_k=0, top_p=1.0):
+    logits = logits / max(temperature, 1e-6)
+    probs = softmax(logits)
+
+    if top_k > 0:                              # keep k highest, zero the rest
+        keep = np.argsort(probs)[-top_k:]
+        mask = np.ones_like(probs, dtype=bool)
+        mask[keep] = False
+        probs[mask] = 0.0
+
+    if top_p < 1.0:                            # nucleus: keep smallest set summing to p
+        order = np.argsort(probs)[::-1]
+        cum = np.cumsum(probs[order])
+        cutoff = np.searchsorted(cum, top_p) + 1
+        kept = order[:cutoff]
+        mask = np.ones_like(probs, dtype=bool)
+        mask[kept] = False
+        probs[mask] = 0.0
+
+    return probs / probs.sum()                 # renormalise
+
+# Five toy tokens with these logits:
+logits = np.array([3.0, 2.0, 1.0, 0.5, -1.0])
+labels = ["cold", "warm", "cool", "icy", "blue"]
+
+for T in [0.5, 1.0, 2.0]:
+    p = decode(logits, temperature=T)
+    print(f"T={T}: " + "  ".join(f"{l} {q:.2f}" for l, q in zip(labels, p)))
+
+print("\\ntop-p=0.8:", np.round(decode(logits, top_p=0.8), 2))
+`}
+/>
+
+That `decode` function, called once per generated token with the model's live
+logits, is the entire difference between text that sings and text that stalls. The
+model supplies the distribution; you supply the taste.
+
+## 6. Problems
+
+### Problem 1 — Find the repetition trap
+
+Using Figure 14.1, set the context to *Once upon a time, there was a* and turn the
+temperature all the way down. Press Sample several times. Then raise it to around
+1.0 and sample again. Describe the difference in variety, and explain it in terms of
+the distribution's shape.
+
+<details>
+  <summary>Show solution</summary>
+
+At low temperature the distribution collapses onto its top token, so *Sample*
+returns the same word almost every time — the deterministic, repetition-prone
+regime. Near $T = 1$ the mass is spread across many plausible nouns, so successive
+samples differ. The lesson: variety in the output is variety in the distribution
+you sample from, and temperature is the dial that controls how much survives.
+
+</details>
+
+### Problem 2 — Why nucleus beats top-k
+
+Take a peaked distribution and a flat one, and apply the same `top_k` to both. Show
+that a single $k$ is wrong for at least one of them, and that a single `top_p`
+adapts. Use the implementation from §5.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def softmax(z):
+    z = z - z.max(); e = np.exp(z); return e / e.sum()
+
+peaked = np.array([6.0, 1.0, 0.5, 0.2, 0.0, -0.5])   # one clear winner
+flat   = np.array([1.0, 0.9, 0.8, 0.75, 0.7, 0.6])   # many plausible
+
+# Your turn: apply top_k=2 to both (how many "good" tokens get cut from 'flat'?),
+# then top_p=0.9 to both. Reuse decode() from the section above.
+print("peaked probs:", np.round(softmax(peaked), 2))
+print("flat probs:  ", np.round(softmax(flat), 2))
+`}
+/>
+
+<details>
+  <summary>Show solution</summary>
+
+With `top_k=2`, the peaked distribution loses nothing that mattered — only the
+clear winner and a runner-up had real mass anyway. But the flat distribution has
+five or six genuinely plausible tokens, and `top_k=2` discards most of them,
+needlessly narrowing the model. `top_p=0.9` keeps roughly one token on the peaked
+case and five or six on the flat one — it sizes the candidate set to the model's
+confidence, which is exactly what a fixed count cannot do.
+
+</details>
+
+---
+
+*Next: Chapter 15 — The context window.* Attention let every token read every
+other token — but that generosity costs compute that grows with the square of the
+length, which is why a model can only ever read so much at once.
