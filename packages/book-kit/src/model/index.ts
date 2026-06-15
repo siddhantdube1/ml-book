@@ -6,6 +6,10 @@ export type {
   EmbeddingWord,
   Analogy,
   EmbeddingFixture,
+  LabelledProb,
+  LogitLensFixture,
+  GenStep,
+  GenerationFixture,
 } from './types'
 export {
   temperatureProbs,

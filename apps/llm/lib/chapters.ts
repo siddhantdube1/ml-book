@@ -66,6 +66,9 @@ export const BUILT = new Set<string>([
   '4-attention',
   '5-multi-head-self-attention',
   '6-the-transformer-block',
+  '7-depth',
+  '8-positional-information',
+  '9-the-forward-pass',
   '14-sampling',
 ])
 

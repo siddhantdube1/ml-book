@@ -1,0 +1,165 @@
+import PositionalEncoding from '@/components/PositionalEncoding'
+import { PyodideEditor } from '@trilogy/book-kit/code'
+
+export const metadata = {
+  title: 'Positional information',
+  description:
+    'Attention is order-blind — it treats a sentence as a bag of tokens. So order has to be injected. Sinusoidal encodings, learned positions, and RoPE, with an interactive sinusoidal heatmap and the encoding built from scratch.',
+  openGraph: {
+    title: 'Positional information',
+    description:
+      'Why transformers need positional encodings: attention is permutation-invariant. Sinusoidal encodings, learned positions, and RoPE.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 8 · Part II — The Transformer
+</p>
+
+# Positional information
+
+*Attention treats a sentence as an unordered set. Before a transformer can read,
+it has to be told what order the words arrived in.*
+
+Here is an unsettling fact about everything we have built so far: it does not know
+word order. Attention computes a weighted average over the other tokens, and an
+average does not care about sequence — shuffle the inputs and you get the same
+sums. To a bare transformer, *the dog bit the man* and *the man bit the dog* are
+the **same bag of tokens**. That is obviously hopeless for language, where order is
+half the meaning.
+
+Attention's blindness to order is not a bug to patch inside attention; it is
+fundamental to what a weighted average is. So instead we *inject* position from
+outside: before the tokens enter the stack, we add to each one a vector that
+encodes where it sits. The token now carries both *what* it is (its embedding) and
+*where* it is (its positional encoding).
+
+By the end of this chapter you will know the classic sinusoidal scheme, how learned
+and rotary positions differ, and you will have generated positional encodings
+yourself.
+
+## 1. Attention is permutation-invariant
+
+Make the problem concrete. Self-attention's output for a token is
+$\sum_j \alpha_j v_j$, a weighted sum of value vectors. Permute the tokens and you
+permute the terms of a sum — whose value is unchanged. Nothing in the query–key–
+value machinery references an index, a distance, or an order. So if we want the
+model to treat the first word differently from the fifth, that distinction has to
+arrive in the *input*, because the architecture will never invent it.
+
+## 2. Adding position to the input
+
+The fix is simple: give every position $p$ its own vector $\text{PE}_p$ of the same
+width as the embeddings, and add it on:
+
+$$x_p = \text{embedding}(\text{token}_p) + \text{PE}_p.$$
+
+Now two copies of the same word at different positions enter the stack as different
+vectors, and attention — though still computing averages — is averaging inputs that
+already carry position. The only question is what those $\text{PE}_p$ vectors
+should be.
+
+## 3. Sinusoidal encodings
+
+The original transformer used a fixed, clever choice: each dimension of
+$\text{PE}_p$ is a sine or cosine of the position, at a different frequency. Low
+dimensions oscillate quickly, high dimensions slowly. Here it is, computed live:
+
+<PositionalEncoding caption="Figure 8.1 — Sinusoidal positional encodings. Each row is a position, each column a dimension at its own frequency. Every position gets a distinct fingerprint, and — because shifting position is a smooth phase shift — the scheme lets attention reason about relative distance." />
+
+Two properties make this work. First, every position gets a **unique** pattern
+across the dimensions — no two rows are identical, so positions are
+distinguishable. Second, and more subtly, because each dimension is a wave, moving
+from position $p$ to $p+k$ is a fixed phase shift *regardless of $p$* — which means
+the model can learn to attend "three tokens back" using the same operation
+everywhere. Position becomes something attention can do arithmetic with.
+
+## 4. Learned and rotary positions
+
+Sinusoids are not the only option. **GPT-2 learns** its positional vectors — just
+another embedding table, indexed by position instead of token, trained alongside
+everything else. Simple, but capped at the maximum length seen in training.
+
+Modern models mostly use **RoPE** (rotary position embeddings), which encodes
+position not by adding a vector but by *rotating* the query and key vectors by an
+angle proportional to their position. Because attention compares queries to keys
+via dot products, and the dot product of two rotated vectors depends only on the
+*difference* of their angles, RoPE bakes **relative** position directly into the
+attention score — and extends more gracefully to long sequences. Different mechanism,
+same goal: tell attention where each token sits.
+
+## 5. Generating them yourself
+
+The sinusoidal scheme is a few lines.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def positional_encoding(n_pos, d):
+    pos = np.arange(n_pos)[:, None]
+    i = np.arange(d)[None, :]
+    denom = np.power(10000.0, (2 * (i // 2)) / d)
+    angles = pos / denom
+    pe = np.zeros((n_pos, d))
+    pe[:, 0::2] = np.sin(angles[:, 0::2])   # even dims: sine
+    pe[:, 1::2] = np.cos(angles[:, 1::2])   # odd dims: cosine
+    return pe
+
+pe = positional_encoding(n_pos=10, d=8)
+print("PE shape:", pe.shape)
+print(np.round(pe, 2))
+
+# Every position is unique: no two rows are equal.
+dists = [np.linalg.norm(pe[0] - pe[k]) for k in range(10)]
+print("\\ndistance of each position from position 0:")
+print(np.round(dists, 2))   # grows smoothly with distance
+`}
+/>
+
+Add the right row of this table to each token's embedding and the order problem is
+solved — quietly, before the first block ever runs.
+
+## 6. Problems
+
+### Problem 1 — Break a model on purpose
+
+Suppose you removed positional encodings entirely. Give two short sentences that a
+human reads as completely different but that such a model would treat as identical,
+and explain why in terms of §1.
+
+<details>
+  <summary>Show solution</summary>
+
+Any pair that is a reordering of the same words works: *dog bites man* / *man bites
+dog*, or *only she said that* / *she said only that*. Without positional encodings
+the input to attention is the same multiset of token vectors in both cases, and
+attention's weighted sums are permutation-invariant, so the model produces
+identical representations — it literally cannot tell the orderings apart.
+
+</details>
+
+### Problem 2 — Why waves, not just the integer p?
+
+Why not encode position by simply adding the number $p$ (1, 2, 3, …) to the
+embeddings, instead of a whole vector of sines and cosines? Using §5, think about
+what happens to the magnitude as sequences get long, and what sinusoids give that a
+raw index doesn't.
+
+<details>
+  <summary>Show solution</summary>
+
+A raw index grows without bound, so by position 1000 it would swamp the embedding's
+own values and scale terribly with length. Sinusoids stay bounded in [−1, 1] at
+every position no matter how long the sequence, give each position a *unique
+multi-dimensional* pattern rather than one scalar, and — crucially — make relative
+offsets a consistent phase shift, so attention can reason about distance. A single
+growing number provides none of that.
+
+</details>
+
+---
+
+*Next: Chapter 9 — The full forward pass.* Every part is now on the table —
+tokenise, embed, add position, run the blocks, unembed. Time to wire them into a
+model that generates.

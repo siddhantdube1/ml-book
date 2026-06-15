@@ -45,6 +45,37 @@ export type NextTokenFixture = {
   topk: TokenProb[]
 }
 
+/** A decoded token with a probability (no logit/id) — for compact fixtures. */
+export type LabelledProb = {
+  text: string
+  prob: number
+}
+
+/**
+ * Logit-lens readout: the model's top predictions when the unembedding is
+ * applied at each layer's residual stream (Ch 7). Layer 0 is the embedding;
+ * the last layer is the true final prediction.
+ */
+export type LogitLensFixture = {
+  id: string
+  model: string
+  context: string
+  layers: { layer: number; top: LabelledProb[] }[]
+}
+
+/** One greedy generation step: the chosen token + the top alternatives. */
+export type GenStep = {
+  chosen: string
+  top: LabelledProb[]
+}
+
+export type GenerationFixture = {
+  id: string
+  model: string
+  prompt: string
+  steps: GenStep[]
+}
+
 /** One word in an embedding projection: 2D display coords + true neighbours. */
 export type EmbeddingWord = {
   text: string

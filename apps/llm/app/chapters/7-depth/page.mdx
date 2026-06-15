@@ -1,0 +1,177 @@
+import LogitLens from '@/components/LogitLens'
+import { PyodideEditor } from '@trilogy/book-kit/code'
+
+export const metadata = {
+  title: 'Depth',
+  description:
+    'One block refines a token a little; stacking many is where understanding accumulates. With the logit lens you can read GPT-2’s prediction off every layer and watch the answer emerge — early layers handle surface form, late layers handle meaning.',
+  openGraph: {
+    title: 'Depth',
+    description:
+      'Why transformers are deep: reading GPT-2’s prediction off every layer with the logit lens, watching meaning emerge with depth.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 7 · Part II — The Transformer
+</p>
+
+# Depth
+
+*A single block barely changes a token. Stack ninety-six and you can watch an
+answer condense out of nothing — layer by layer.*
+
+The block from the last chapter does something modest: it lets tokens exchange a
+little information and processes each one a little. Run it once and the
+representation is only slightly richer than the embedding it started from. The
+power comes from **repetition** — stacking the same block over and over. GPT-2
+small stacks 12; GPT-3 stacks 96; the largest models stack more. Each block reads
+the residual stream, makes a small edit, and passes it up.
+
+What does all that depth buy? We can actually look. By applying the model's final
+unembedding not just at the top but at *every* layer — a technique called the
+**logit lens** — we can read off what the model "would predict" at each stage, and
+watch the answer form.
+
+By the end of this chapter you will have watched a prediction emerge across GPT-2's
+layers and stacked blocks into a depth of your own.
+
+## 1. Depth as repeated refinement
+
+Because every block adds to the residual stream rather than replacing it (Chapter
+6), depth is *cumulative*. Layer 1 makes a small edit; layer 2 edits the result;
+by the top, the stream carries the compounded work of every layer below. No single
+block has to be clever — each just nudges the representation a little closer to
+something useful, and the nudges add up.
+
+This is why "make it deeper" was, for years, one of the most reliable ways to make
+a model better: more blocks means more successive refinements, and — within limits
+— more capacity to build abstract structure out of raw tokens.
+
+## 2. Reading the layers
+
+Here is GPT-2's prediction, read off every layer with the logit lens. The bottom
+row is the raw embedding; the top is the true final prediction. Watch where the
+real answer first appears.
+
+<LogitLens
+  fixtureIds={['opposite-hot', 'capital-france']}
+  caption="Figure 7.1 — The logit lens on GPT-2. For ‘The opposite of hot is’, early layers predict generic function words (not, now); the answer ‘cold’ only emerges in the upper layers and then locks in. Meaning is a late-layer phenomenon."
+/>
+
+The pattern is striking and typical. The early layers predict bland, high-frequency
+tokens — *not*, *now*, *the* — essentially guessing from surface statistics. The
+actual answer, *cold*, does not appear until the upper layers, where it emerges and
+then stabilises to the top. Early layers handle form; later layers handle meaning.
+(Switch to the *capital* example to see a case where even GPT-2's final answer is a
+hedge — small models are not always right, and the lens shows their uncertainty
+honestly.)
+
+A caution: the logit lens is a *probe*, not a perfect window — reading the
+unembedding off a middle layer is slightly unfair to a model that was only trained
+to be read at the top. But the qualitative story — meaning sharpening with depth —
+holds across models and is one of the clearest views we have into what depth does.
+
+## 3. The shape of computation
+
+Put §1 and §2 together and a picture emerges. A token starts as a context-free
+embedding at the bottom. Attention layers route information between positions;
+MLP layers fold in stored knowledge; and across depth the representation climbs
+from *surface form* (what the token is) toward *meaning and intent* (what should
+come next). The residual stream is the through-line, and the layers are a pipeline
+of increasingly abstract edits.
+
+## 4. Stacking blocks yourself
+
+Depth is just a loop. Here we stack the Chapter 6 block and watch the residual
+stream evolve — measuring how much each layer changes it.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+
+def softmax(x, axis=-1):
+    x = x - x.max(axis=axis, keepdims=True)
+    e = np.exp(x); return e / e.sum(axis=axis, keepdims=True)
+def layer_norm(x, eps=1e-5):
+    return (x - x.mean(-1, keepdims=True)) / np.sqrt(x.var(-1, keepdims=True) + eps)
+def attention(X, Wq, Wk, Wv):
+    Q, K, V = X @ Wq, X @ Wk, X @ Wv
+    n = X.shape[0]; s = Q @ K.T / np.sqrt(Wq.shape[1])
+    s[np.triu(np.ones((n, n)), 1).astype(bool)] = -np.inf
+    return softmax(s) @ V
+def gelu(x): return 0.5 * x * (1 + np.tanh(0.797885 * (x + 0.044715 * x**3)))
+
+def block(X, p):
+    X = X + attention(layer_norm(X), p["Wq"], p["Wk"], p["Wv"])
+    X = X + gelu(layer_norm(X) @ p["W1"]) @ p["W2"]
+    return X
+
+rng = np.random.default_rng(0)
+n, d, depth = 4, 16, 8
+X = rng.standard_normal((n, d))
+params = [{
+    "Wq": rng.standard_normal((d, d))*.1, "Wk": rng.standard_normal((d, d))*.1,
+    "Wv": rng.standard_normal((d, d))*.1, "W1": rng.standard_normal((d, 4*d))*.1,
+    "W2": rng.standard_normal((4*d, d))*.1,
+} for _ in range(depth)]
+
+h = X
+for L, p in enumerate(params):
+    new = block(h, p)
+    change = np.linalg.norm(new - h) / np.linalg.norm(h)
+    print(f"layer {L}: stream changed by {change:.1%}")
+    h = new
+print("\\nfinal shape:", h.shape, "- same as input, after", depth, "layers")
+`}
+/>
+
+Each layer changes the stream by only a modest fraction — small, incremental edits,
+exactly as the logit lens suggested. Stack enough of them and those small edits
+compound into a model that can finish your sentence.
+
+## 5. Problems
+
+### Problem 1 — When does the answer arrive?
+
+Using Figure 7.1 on the *opposite-hot* context, name the first layer at which *cold*
+becomes the top prediction, and the layers below it. What kind of tokens does the
+model predict before the answer locks in, and what does that tell you about what
+the early layers are doing?
+
+<details>
+  <summary>Show solution</summary>
+
+*Cold* appears as the top prediction only in the upper layers (around layer 9 and
+above); below that the model predicts generic high-frequency words like *not* and
+*now*. The early layers haven't yet assembled the meaning of the phrase — they're
+operating on surface statistics — while the semantic content ("the opposite of
+hot") is resolved late. Depth is doing real work: the answer is genuinely
+constructed across the stack, not looked up at the bottom.
+
+</details>
+
+### Problem 2 — Why not infinite depth?
+
+If stacking blocks refines the representation, why not use ten thousand layers?
+Think about both what §4's residual edits look like as depth grows, and the
+practical cost.
+
+<details>
+  <summary>Show solution</summary>
+
+Returns diminish: each layer's edit is small and increasingly redundant, so beyond
+some depth extra layers barely change the stream while still costing compute and
+memory for every token, every step. There are also optimisation limits — even with
+residual connections, extremely deep stacks get harder to train. In practice depth
+is balanced against width and data (the subject of Chapter 11's scaling laws);
+"deeper" helps only up to the point where the rest of the budget would be better
+spent elsewhere.
+
+</details>
+
+---
+
+*Next: Chapter 8 — Positional information.* Attention treats a sentence as an
+unordered bag of tokens — so before any of this works, the model needs to be told
+what order the words came in.

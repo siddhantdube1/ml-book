@@ -1,0 +1,178 @@
+import GenerationPlayback from '@/components/GenerationPlayback'
+import { PyodideEditor } from '@trilogy/book-kit/code'
+
+export const metadata = {
+  title: 'The full forward pass',
+  description:
+    'Every part assembled: tokenise, embed, add position, run the blocks, unembed to logits, sample, append, repeat. Watch GPT-2 generate token by token, and wire the whole pipeline together in NumPy.',
+  openGraph: {
+    title: 'The full forward pass',
+    description:
+      'The complete transformer pipeline end to end, and autoregressive generation — watch GPT-2 produce text one token at a time.',
+    type: 'article',
+  },
+}
+
+<p className="font-sans text-xs uppercase tracking-[0.18em] text-ink-muted mb-3">
+  Chapter 9 · Part II — The Transformer
+</p>
+
+# The full forward pass
+
+*Every piece is now on the table. This chapter wires them into a working model and
+presses go.*
+
+We have built all the parts: a tokenizer (Chapter 2), an embedding table (Chapter
+3), attention and the heads (Chapters 4–5), the block (Chapter 6), depth (Chapter
+7), and positional encodings (Chapter 8). A transformer is nothing more than these,
+connected in one order and run end to end. And the way it produces text — one token
+at a time, feeding its own output back as input — is the last mechanism we need
+before the book turns from *how it works* to *how it behaves*.
+
+By the end of this chapter you will be able to trace a token from raw text all the
+way to a prediction, watch a real model generate, and run a complete (if tiny)
+forward pass yourself.
+
+## 1. The assembly line
+
+A single forward pass, from text to a distribution over the next token, is a fixed
+pipeline:
+
+1. **Tokenise** — text becomes token ids (Chapter 2).
+2. **Embed** — each id becomes a vector (Chapter 3); add its **positional**
+   encoding (Chapter 8).
+3. **Blocks** — run the stack of transformer blocks; tokens attend and compute,
+   the residual stream refines (Chapters 4–7).
+4. **Final norm + unembed** — layer-normalise the top of the stream, then multiply
+   by the embedding matrix transposed to get a **logit** for every vocabulary token.
+5. **Softmax** — turn logits into the probability distribution we met in Chapter 1.
+
+That distribution is the output of one forward pass. Everything in Part I and Part
+II has been a description of one of these five steps.
+
+## 2. Autoregression: feeding the output back
+
+A forward pass predicts *one* token. To produce text, the model runs the pipeline,
+picks a token from the distribution, **appends it to the input**, and runs again —
+now with one more token of context. Repeat, and text unspools one token at a time.
+This is **autoregressive generation**, and you can scrub through it here on a real
+GPT-2:
+
+<GenerationPlayback
+  fixtureIds={['once-upon', 'the-meaning']}
+  caption="Figure 9.1 — GPT-2 generating, one greedy token at a time. At each step it runs a full forward pass, takes the most likely token (highlighted), appends it, and repeats. Notice it falls into a repetitive loop — the price of always taking the top token, which Chapter 14 fixes." />
+
+Step through it and watch the loop in action: full pass, take the top token, append,
+again. Notice too that always taking the single most likely token makes the model
+repeat itself — *"a man who was a man of great wealth and power… a man of great
+wealth and power"*. That repetition is not a bug in the model; it is a consequence
+of *greedy* decoding, and it is exactly what the sampling dials of Chapter 14 exist
+to cure. The mechanism here is just the loop; the *choosing* is a separate story.
+
+## 3. The cost hiding in the loop
+
+One thing the playback hides: at every step the model reprocesses the whole growing
+context. Attention compares every token to every token, so the work per step grows
+with the sequence length, and the total grows faster still. Real systems avoid
+redoing it all with a **KV cache** — storing each token's keys and values so only
+the new token needs fresh work. We pull that thread, and the quadratic cost behind
+it, in Chapter 15.
+
+## 4. The whole pipeline, end to end
+
+Here is a complete forward pass and greedy generation loop, wiring together the
+embedding, positional encoding, blocks, and unembedding. The weights are random, so
+the output is gibberish — but the *plumbing* is exactly a transformer's. Read it as
+the summary of Part II.
+
+<PyodideEditor
+  initialCode={`import numpy as np
+rng = np.random.default_rng(0)
+
+def softmax(x, axis=-1):
+    x = x - x.max(axis=axis, keepdims=True)
+    e = np.exp(x); return e / e.sum(axis=axis, keepdims=True)
+def layer_norm(x):
+    return (x - x.mean(-1, keepdims=True)) / np.sqrt(x.var(-1, keepdims=True) + 1e-5)
+def gelu(x): return 0.5 * x * (1 + np.tanh(0.797885 * (x + 0.044715 * x**3)))
+
+V, d, depth = 50, 16, 2          # toy vocab of 50, width 16, 2 layers
+Wemb = rng.standard_normal((V, d)) * 0.1
+PE   = rng.standard_normal((64, d)) * 0.1
+blocks = [{
+    "Wq": rng.standard_normal((d, d))*.1, "Wk": rng.standard_normal((d, d))*.1,
+    "Wv": rng.standard_normal((d, d))*.1, "W1": rng.standard_normal((d, 4*d))*.1,
+    "W2": rng.standard_normal((4*d, d))*.1,
+} for _ in range(depth)]
+
+def attention(X, p):
+    Q, K, Vv = X @ p["Wq"], X @ p["Wk"], X @ p["Wv"]
+    n = X.shape[0]; s = Q @ K.T / np.sqrt(d)
+    s[np.triu(np.ones((n, n)), 1).astype(bool)] = -np.inf
+    return softmax(s) @ Vv
+
+def forward(ids):
+    X = Wemb[ids] + PE[:len(ids)]          # 2. embed + position
+    for p in blocks:                       # 3. blocks
+        X = X + attention(layer_norm(X), p)
+        X = X + gelu(layer_norm(X) @ p["W1"]) @ p["W2"]
+    logits = layer_norm(X) @ Wemb.T        # 4. final norm + unembed
+    return logits[-1]                      # distribution for the last position
+
+# 2'. autoregression: predict, append, repeat
+ids = [1, 5, 9]
+for _ in range(6):
+    probs = softmax(forward(ids))
+    ids.append(int(probs.argmax()))        # greedy
+print("generated token ids:", ids)
+`}
+/>
+
+Swap the random weights for trained ones and the toy vocab for fifty thousand real
+tokens, and this exact loop is GPT-2. Part II is, in the end, a long answer to "what
+goes inside `forward`?"
+
+## 5. Problems
+
+### Problem 1 — Trace a token
+
+Take the word *Paris* entering the model at position 3. In one sentence each, say
+what happens to it at every stage of §1, naming the chapter that built that stage.
+
+<details>
+  <summary>Show solution</summary>
+
+(1) The tokenizer maps *Paris* to a token id (Ch 2). (2) The id indexes the
+embedding table to a vector, and position-3's encoding is added (Ch 3, Ch 8). (3)
+Through the blocks, attention lets it absorb context and the MLP processes it, the
+residual stream refining across depth (Ch 4–7). (4) At the top, the stream is
+normalised and multiplied by the embedding matrix transposed to give a logit per
+vocabulary token. (5) Softmax turns those into the next-token distribution (Ch 1).
+*Paris* arrived as a fixed vector and leaves as part of a prediction about what
+comes next.
+
+</details>
+
+### Problem 2 — Why is generation slow?
+
+A model generates a 500-token answer noticeably slower at the end than at the start.
+Using §3, explain why, and what the KV cache does about it.
+
+<details>
+  <summary>Show solution</summary>
+
+Each new token runs a full forward pass over the entire context so far, and
+attention's work grows with context length — so step 500 is processing far more
+tokens than step 1, and is slower. The KV cache stores the keys and values already
+computed for earlier tokens, so each step only computes them for the *new* token
+instead of recomputing the whole history. It doesn't remove the growing
+attention-comparison cost entirely, but it eliminates the redundant recomputation,
+which is the bulk of it.
+
+</details>
+
+---
+
+*Next: Chapter 10 — Pretraining.* We have a machine that turns context into a
+next-token distribution. Part III is about where its knowledge comes from: training
+that machine on a sizeable fraction of everything ever written.
