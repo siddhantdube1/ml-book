@@ -57,7 +57,7 @@ export default function KNNScaling() {
       </div>
 
       <figcaption className="font-sans text-sm text-ink-muted mt-4 text-center max-w-prose mx-auto">
-        Figure 4.3 — Distance depends on units. The class depends on <em>both</em>
+        Figure 4.3 — Distance depends on units. The class depends on <em>both </em>
         features, but x₁ runs to 1000 while x₂ never leaves [0, 1], so in raw units
         the distance between two points is almost entirely x₁ — and kNN&rsquo;s
         boundary comes out nearly vertical, deaf to x₂. Tick{' '}
